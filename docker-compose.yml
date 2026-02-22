@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  # Core Redis Engine
+  redis-server:
+    image: redis:7.2-alpine  # Lightweight and stable Alpine-based version
+    container_name: lottery-redis
+    ports:
+      - "6379:6379"          # Port mapping: [Host]:[Container]
+    volumes:
+      - redis_data:/data     # Persistence: ensures data survives container restarts
+    # Enable AOF (Append Only File) for better data durability
+    command: ["redis-server", "--appendonly", "yes"]
+
+  # GUI Management Tool (Bonus Interface)
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redis-insight
+    ports:
+      - "8001:8001"          # Access the dashboard at http://localhost:8001
+    # Helpful for visualizing sets and key-value performance
+
+volumes:
+  redis_data:

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redis High-Load System</title>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --neon-green: #00ff41;
+            --neon-blue: #00d4ff;
+            --dark-bg: #0d0208;
+            --panel-bg: #1a1a1a;
+        }
+
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            background: var(--dark-bg);
+            color: var(--neon-green);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .stats-container {
+            display: flex;
+            width: 100%;
+            justify-content: center;
+            gap: 60px;
+            padding: 20px 0;
+            background: rgba(0, 255, 65, 0.05);
+            border-bottom: 1px solid var(--neon-green);
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.1);
+        }
+
+        .stat-box { font-size: 18px; text-align: center; }
+        .stat-value { color: #fff; display: block; font-size: 36px; text-shadow: 0 0 10px var(--neon-green); }
+
+        .main-panel {
+            width: 90%;
+            max-width: 800px;
+            background: var(--panel-bg);
+            margin: 30px 0;
+            padding: 30px;
+            border: 1px solid #333;
+            border-radius: 4px;
+        }
+
+        h1 { color: #fff; border-left: 4px solid var(--neon-green); padding-left: 15px; text-transform: uppercase; margin-bottom: 30px;}
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+        }
+
+        input[type="number"] {
+            background: #000;
+            border: 1px solid var(--neon-green);
+            color: var(--neon-green);
+            padding: 12px;
+            font-size: 18px;
+            font-family: inherit;
+            width: 140px;
+            outline: none;
+        }
+
+        button {
+            background: transparent;
+            color: var(--neon-green);
+            padding: 12px 25px;
+            font-family: inherit;
+            font-weight: bold;
+            border: 1px solid var(--neon-green);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        button:hover {
+            background: var(--neon-green);
+            color: #000;
+            box-shadow: 0 0 15px var(--neon-green);
+        }
+
+        .lua-btn { border-color: var(--neon-blue); color: var(--neon-blue); }
+        .lua-btn:hover { background: var(--neon-blue); color: #000; box-shadow: 0 0 15px var(--neon-blue); }
+
+        button.primary-btn {
+            background: rgba(0, 255, 65, 0.1);
+            border-width: 2px;
+            width: 100%;
+            font-size: 20px;
+            margin-top: 10px;
+        }
+
+        .progress-section { margin-top: 30px; }
+        .progress-labels { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+
+        .progress-container {
+            width: 100%; height: 25px; background: #000; border: 1px solid #333; position: relative;
+            overflow: hidden;
+        }
+
+        #progress-bar {
+            width: 0%; height: 100%; background: var(--neon-green);
+            transition: width 0.15s linear;
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.4);
+        }
+
+        .numbers-display {
+            background: #000; padding: 15px; border: 1px dashed #444;
+            margin: 15px 0; font-size: 1.4em; color: #fff; min-height: 30px;
+            display: flex; gap: 5px; justify-content: center;
+        }
+
+        .status-msg { color: #888; font-style: italic; margin-top: 10px; min-height: 1.5em; }
+        label { display: block; font-size: 12px; color: #888; margin-bottom: 5px; }
+
+        .win-box { border: 2px solid #ffff00; padding: 15px; background: rgba(255,255,0,0.1); text-align: center; }
+        .win-text { font-size: 1.5em; color: #ffff00; display: block; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+    <div class="stats-container">
+        <div class="stat-box">TOTAL TICKETS<span id="total-counter" class="stat-value">0</span></div>
+        <div class="stat-box">SPEED (RPS)<span id="rps-counter" class="stat-value">0</span></div>
+    </div>
+
+    <div class="main-panel">
+        <h1>High-Load Simulator</h1>
+
+        <div class="control-section">
+            <label for="participants">1. CONFIGURE PARTICIPANTS POOL:</label>
+            <div class="control-row">
+                <input type="number" id="participants" value="100000" min="1">
+                <button onclick="runGenerator('python')">Python Gen</button>
+                <button onclick="runGenerator('lua')" class="lua-btn">Lua Gen (Turbo)</button>
+            </div>
+        </div>
+
+        <div id="benchmark-result" class="status-msg">
+            Last run: <span id="timer-val">0.000</span>s | <span id="eff-rps">0</span> RPS
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
+
+        <div class="control-section">
+            <label>YOUR CURRENT TICKET:</label>
+            <div id="user-numbers" class="numbers-display">
+                <span>XX</span><span>XX</span><span>XX</span><span>XX</span>
+                <span>XX</span><span>XX</span><span>XX</span><span>XX</span>
+            </div>
+            <button onclick="pickMyTicket()" style="width: 100%;">2. PULL TICKET FROM DATABASE</button>
+        </div>
+
+        <div style="margin-top: 25px;">
+            <button id="startLotteryBtn" onclick="startFullLottery()" class="primary-btn">
+                3. RUN SYSTEM VALIDATION
+            </button>
+        </div>
+
+        <div id="game-status" class="status-msg">> Awaiting commands...</div>
+
+        <div class="progress-section">
+            <div class="progress-labels">
+                <span id="progress-count">0 / 0</span>
+                <span id="progress-percent">0%</span>
+            </div>
+            <div class="progress-container">
+                <div id="progress-bar"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

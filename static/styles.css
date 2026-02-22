@@ -1,0 +1,159 @@
+:root {
+    --neon-green: #00ff41;
+    --dark-bg: #0d0208;
+    --panel-bg: #101010;
+    --border-glow: 0 0 10px rgba(0, 255, 65, 0.2);
+}
+
+body {
+    background-color: var(--dark-bg);
+    color: var(--neon-green);
+    font-family: 'Courier New', monospace;
+    margin: 0;
+    padding: 20px;
+    /* CRT Monitor Effect (Horizontal Scanlines) */
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+                linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    background-size: 100% 4px, 3px 100%;
+}
+
+.stats-container {
+    display: flex;
+    justify-content: space-around;
+    padding: 20px;
+    background: var(--panel-bg);
+    border: 1px solid var(--neon-green);
+    box-shadow: var(--border-glow);
+    margin-bottom: 30px;
+    text-transform: uppercase;
+}
+
+.stat-value {
+    color: #fff;
+    font-size: 2.5em;
+    text-shadow: 0 0 15px var(--neon-green);
+}
+
+.panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--neon-green);
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: var(--border-glow);
+    position: relative;
+    overflow: hidden;
+}
+
+/* CRT Scanline Animation Overlay */
+.panel::after {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(to bottom, transparent 0%, rgba(0, 255, 65, 0.1) 50%, transparent 100%);
+    opacity: 0.1;
+    pointer-events: none;
+    animation: scan 4s linear infinite;
+}
+
+@keyframes scan {
+    from { transform: translateY(-100%); }
+    to { transform: translateY(100%); }
+}
+
+.numbers-display {
+    font-family: 'Share Tech Mono', monospace;
+    background: #000;
+    color: #00ff41;
+    padding: 15px;
+    border: 1px solid #00ff41;
+    display: inline-block;
+    letter-spacing: 4px;
+    box-shadow: inset 0 0 10px #00ff41;
+    font-size: 1.2em;
+}
+
+#chart-container {
+    height: 300px;
+    margin-top: 20px;
+    border: 1px solid #00ff41;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.progress-section {
+    width: 100%;
+    max-width: 800px;
+    margin: 30px auto;
+    font-family: 'Share Tech Mono', monospace;
+}
+
+.progress-stats {
+    display: flex;
+    justify-content: space-between;
+    color: #00ff41;
+    margin-bottom: 10px;
+    font-size: 1.2em;
+}
+
+.progress-container {
+    width: 100%;
+    height: 30px;
+    background: #1a1a1a;
+    border: 1px solid #00ff41;
+    position: relative;
+    overflow: hidden;
+}
+
+#progress-bar {
+    width: 0%;
+    height: 100%;
+    background: #00ff41;
+    box-shadow: 0 0 15px #00ff41;
+    transition: width 0.1s linear; /* Smooth progress movement */
+}
+
+.rps-status {
+    margin-top: 10px;
+    color: #008f11;
+    font-size: 0.9em;
+}
+
+.lua-btn {
+    border-color: #00d4ff !important;
+    color: #00d4ff !important;
+}
+
+.lua-btn:hover {
+    background: #00d4ff !important;
+    color: #000 !important;
+    box-shadow: 0 0 15px #00d4ff !important;
+}
+
+.control-section {
+    margin-bottom: 15px;
+    text-align: left;
+}
+
+label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: #888;
+}
+
+.numbers-display span {
+    color: #444; /* Gray color for empty/placeholder slots */
+    border: 1px solid #333;
+    padding: 5px 10px;
+    margin: 0 2px;
+    border-radius: 3px;
+    min-width: 30px;
+    display: inline-block;
+    text-align: center;
+}
+
+.numbers-display span.active {
+    color: #fff;
+    border-color: var(--neon-green);
+    text-shadow: 0 0 5px var(--neon-green);
+}
