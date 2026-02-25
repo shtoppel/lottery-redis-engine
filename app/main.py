@@ -1,6 +1,10 @@
 import asyncio
 import json
 import sys
+
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 import os
 from contextlib import asynccontextmanager
 import redis.asyncio as redis
@@ -8,6 +12,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from app.routers import lottery
+
 
 
 # --- LIFESPAN MANAGEMENT ---

@@ -10,7 +10,7 @@ services:
     volumes:
       - redis_data:/data     # Persistence: ensures data survives container restarts
     # Enable AOF (Append Only File) for better data durability
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
 
   # GUI Management Tool (Bonus Interface)
   redis-insight:

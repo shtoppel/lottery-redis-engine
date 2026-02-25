@@ -157,3 +157,26 @@ label {
     border-color: var(--neon-green);
     text-shadow: 0 0 5px var(--neon-green);
 }
+
+.benchmark-panel {
+    background: #000;
+    border: 1px solid #333;
+    padding: 15px;
+    margin: 20px 0;
+}
+.btn-start { border-color: #00ff00 !important; color: #00ff00 !important; }
+.btn-stop { border-color: #ff4444 !important; color: #ff4444 !important; }
+.stat-card {
+    background: #111;
+    padding: 10px;
+    border: 1px solid #222;
+    text-align: center;
+}
+
+.stat-value {
+    color: #fff;
+    display: block;
+    font-size: 24px; /* Чуть уменьшили с 28px для длинных строк */
+    text-shadow: 0 0 10px var(--neon-green);
+    white-space: nowrap;
+}

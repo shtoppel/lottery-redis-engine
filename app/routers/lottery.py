@@ -1,195 +1,191 @@
-import asyncio
-import random
-import time
+import httpx
 from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel
-from typing import List
-import re
+import asyncio
+import psutil
+from fastapi import Request
+
+# Импортируем наши сервисы
+from app.services.lottery_service import LotteryService
+from app.services.metrics import MetricsService
+from app.services.locust_service import LocustService
 
 router = APIRouter()
-
-# --- LUA SCRIPTS ---
-# Ticket Generator (Turbo Mode)
-LUA_GEN_SCRIPT = """
-local count = tonumber(ARGV[1])
-for i = 1, count do
-    local t = ""
-    for j = 1, 8 do
-        local n = math.random(0, 99)
-        if n < 10 then t = t .. "0" .. n else t = t .. n end
-    end
-    redis.call("SADD", KEYS[1], t)
-end
-redis.call("INCRBY", KEYS[2], count)
-return count
-"""
-
-# Search ticket in Set (O(1) complexity)
-LUA_SEARCH_SCRIPT = """
-local set_key = KEYS[1]
-local target_ticket = ARGV[1]
-if redis.call("SISMEMBER", set_key, target_ticket) == 1 then
-    return {1, target_ticket}
-else
-    return {0, ""}
-end
-"""
+locust_manager = LocustService()  # Сервис для Locust
 
 
-class LotteryConfig(BaseModel):
-    participants: int
-    user_ticket: List[str]
+# --- ГЕНЕРАЦИЯ ---
 
-
-# --- GENERATION #1: LUA (TURBO) ---
-@router.post("/generate-lua/{count}")
-async def generate_lua(count: int, request: Request):
-    r = request.app.state.redis
-
-    async def task():
-        await r.set("lottery:status", "generating")
-        await r.delete("lottery:tickets")
-        await r.delete("lottery:result")
-        await r.delete("lottery:winning_number")
-        await r.set("stats:total_bets", 0)
-
-        batch_size = 50000
-        remaining = count
-        while remaining > 0:
-            current_batch = min(batch_size, remaining)
-            await r.eval(LUA_GEN_SCRIPT, 2, "lottery:tickets", "stats:total_bets", current_batch)
-            remaining -= current_batch
-            await asyncio.sleep(0.001)
-        await r.set("lottery:status", "idle")
-
-    asyncio.create_task(task())
-    return {"status": "Lua generation started"}
-
-
-# --- GENERATION #2: PYTHON (OPTIMIZED) ---
 @router.post("/generate-participants/{count}")
 async def generate_participants(count: int, request: Request):
     r = request.app.state.redis
+    # Вызываем метод из сервиса, который мы создали ранее
+    asyncio.create_task(LotteryService.generate_python_batch(r, count))
+    return {"message": "Python generation started"}
 
-    async def task():
-        await r.set("lottery:status", "generating")
-        await r.delete("lottery:tickets")
-        await r.delete("lottery:result")
-        await r.delete("lottery:winning_number")
-        await r.set("stats:total_bets", 0)
-
-        pairs_pool = [f"{i:02d}" for i in range(100)]
-        batch_size = 10000
-        generated = 0
-        while generated < count:
-            current_batch = min(batch_size, count - generated)
-            tickets = ["".join(random.choices(pairs_pool, k=8)) for _ in range(current_batch)]
-            pipe = r.pipeline()
-            pipe.sadd("lottery:tickets", *tickets)
-            pipe.incrby("stats:total_bets", len(tickets))
-            await pipe.execute()
-            generated += current_batch
-            await asyncio.sleep(0.001)
-        await r.set("lottery:status", "idle")
-
-    asyncio.create_task(task())
-    return {"message": "Python pair-generation started"}
+@router.post("/generate-lua/{count}")
+async def generate_lua(count: int, request: Request):
+    # Запускаем фоновую задачу через сервис
+    asyncio.create_task(LotteryService.generate_lua_batch(request.app.state.redis, count))
+    return {"status": "Lua generation started"}
 
 
-# --- RETRIEVE TICKET FROM POOL ---
+# --- ЛОГИКА РОЗЫГРЫША ---
+
 @router.get("/get-random-complex-ticket")
-async def get_ticket(request: Request):
+async def get_random_complex_ticket(request: Request):
     r = request.app.state.redis
-    # Get a random element from the Set
+    # Просто берем случайный билет из пула
     raw_ticket = await r.srandmember("lottery:tickets")
-
     if not raw_ticket:
-        raise HTTPException(status_code=400, detail="DATABASE EMPTY! Generate tickets first.")
+        return {"ticket_pairs": [], "status": "empty"}
 
-    # Cast to string
-    ticket_str = raw_ticket.decode() if isinstance(raw_ticket, bytes) else str(raw_ticket)
-
-    # Debug log for server console
-    print(f"--- POOL CHECK ---")
-    print(f"Pulled from Redis: |{ticket_str}|")
-
+    ticket_str = raw_ticket.decode() if isinstance(raw_ticket, bytes) else raw_ticket
     pairs = [ticket_str[i:i + 2] for i in range(0, len(ticket_str), 2)]
-    return {"ticket_pairs": pairs, "raw": ticket_str}
+
+    # Возвращаем сам билет. МЫ НЕ МЕНЯЕМ winning_number здесь.
+    return {"ticket_pairs": pairs, "status": "ok"}
 
 
-# --- TICKET VALIDATION (HIGH-LOAD SCAN) ---
+# В эндпоинте генерации (lua или python) добавь установку джекпота
+# чтобы при создании пула всегда назначался один победитель
+async def finalize_generation(r):
+    lucky_guy = await r.srandmember("lottery:tickets")
+    if lucky_guy:
+        await r.set("lottery:winning_number", lucky_guy)
+
 @router.post("/run-full-lottery")
 async def run_full_lottery(data: dict, request: Request):
     r = request.app.state.redis
-    # Ticket currently held by the client
     user_ticket = "".join(data.get('user_ticket', []))
 
-    async def lottery_task():
-        await r.set("lottery:status", "scanning")
-        start_time = time.perf_counter()
-
-        # --- STEP 1: SELECT WINNER FROM POOL ---
-        # Crucial: we pick a ticket from the existing participants Set.
-        # If the Set contains 1 ticket, SRANDMEMBER will return exactly that one.
-        raw_winning_ticket = await r.srandmember("lottery:tickets")
-
-        if raw_winning_ticket:
-            winning_ticket = raw_winning_ticket.decode() if isinstance(raw_winning_ticket, bytes) else str(
-                raw_winning_ticket)
-        else:
-            winning_ticket = "0000000000000000"
-
-        await r.set("lottery:winning_number", winning_ticket)
-
-        # --- STEP 2: COMPARISON ---
-        is_winner = (user_ticket == winning_ticket)
-
-        end_time = time.perf_counter()
-        search_ms = (end_time - start_time) * 1000
-
-        # Debug logs for PyCharm console
-        print(f"\n[DEBUG LOTTERY]")
-        print(f"USER  TICKET: {user_ticket}")
-        print(f"WIN   TICKET: {winning_ticket}")
-        print(f"MATCH: {is_winner}")
-
-        await r.set("stats:last_search_time", f"{search_ms:.4f}")
-        await r.set("lottery:result", "winner" if is_winner else "loser")
-
-        # Visual progress feedback
-        await r.set("stats:scan_progress", 100)
-        await r.set("lottery:status", "finished")
-
-    asyncio.create_task(lottery_task())
+    # Запускаем фоновую задачу полного цикла
+    asyncio.create_task(LotteryService.run_full_lottery_task(r, user_ticket))
     return {"status": "started"}
 
 
 @router.get("/check-result")
-async def check_result(request: Request):
+async def check_result(ticket: str, request: Request):
     r = request.app.state.redis
-    res = await r.get("lottery:result")
-    raw_winning_no = await r.get("lottery:winning_number")
+    # Получаем выигрышный номер из базы
+    winning_ticket = await r.get("lottery:winning_number")
 
-    winning_no = raw_winning_no.decode() if isinstance(raw_winning_no, bytes) else (
-                raw_winning_no or "0000000000000000")
-    status = res.decode() if isinstance(res, bytes) else str(res)
+    if not winning_ticket:
+        # Если джекпота нет, берем ЛЮБОЙ из базы и делаем его джекпотом
+        raw_winning = await r.srandmember("lottery:tickets")
+        if not raw_winning:
+            return {"winner": False, "winning_ticket": []}
+        winning_ticket = raw_winning.decode() if isinstance(raw_winning, bytes) else raw_winning
+        await r.set("lottery:winning_number", winning_ticket)
+    else:
+        winning_ticket = winning_ticket.decode() if isinstance(winning_ticket, bytes) else winning_ticket
 
-    # Split jackpot into pairs for UI rendering
-    w_pairs = [winning_no[i:i + 2] for i in range(0, len(winning_no), 2)]
+    # Сравниваем переданный с фронта билет с тем, что в базе
+    is_winner = (ticket == winning_ticket)
 
     return {
-        "winner": status == "winner",
-        "winning_ticket": w_pairs,
-        "search_time": await r.get("stats:last_search_time") or "0"
+        "winner": is_winner,
+        "winning_ticket": [winning_ticket[i:i + 2] for i in range(0, len(winning_ticket), 2)]
+    }
+
+@router.post("/run-multi-check/{count}")
+async def run_multi_check(count: int, request: Request):
+    r = request.app.state.redis
+
+    # Валидация на стороне сервера (минимум 10,000)
+    if count < 10000:
+        raise HTTPException(status_code=400, detail="Minimum multi-check is 10,000")
+
+    winning_ticket = await r.get("lottery:winning_number")
+    # Если джекпота нет в базе, назначаем его из существующих билетов (один раз)
+    if not winning_ticket:
+        raw_winning = await r.srandmember("lottery:tickets")
+        if not raw_winning:
+            raise HTTPException(status_code=400, detail="Pool is empty")
+        winning_ticket = raw_winning.decode() if isinstance(raw_winning, bytes) else raw_winning
+        await r.set("lottery:winning_number", winning_ticket)
+
+    result = await LotteryService.execute_multi_check(r, "lottery:tickets", count, winning_ticket)
+    stats = await MetricsService.get_system_stats(r)
+
+    return {
+        "rps": result["rps"],
+        "execution_time_ms": result["execution_time_ms"],
+        "checked_count": count,
+        "winners": result["winners"],
+        "used_memory": stats["used_memory"]
     }
 
 
-# --- CLEANUP ---
+@router.get("/system-stats")
+async def get_system_stats(request: Request):
+    try:
+        # Память Redis
+        redis_info = await request.app.state.redis.info("memory")
+
+        # Память системы (psutil)
+        vm = psutil.virtual_memory()
+
+        return {
+            "redis_mem": redis_info.get('used_memory_human', "0B"),
+            "sys_mem_bytes": vm.used,  # Сколько занято (в байтах)
+            "sys_total_bytes": vm.total  # Всего в системе (в байтах)
+        }
+    except Exception as e:
+        print(f"Stats Error: {e}")
+        return {"redis_mem": "Err", "sys_mem_bytes": 0, "sys_total_bytes": 0}
+
+
+# --- LOCUST CONTROL (твой код) ---
+
+@router.get("/locust-stats")
+async def get_locust_stats():
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=1.0) as client:
+            # Делаем запрос к Locust API
+            r = await client.get("http://localhost:8089/stats/requests")
+            data = r.json()
+
+            # 1. Извлекаем общие метрики (для плашек)
+            # В разных версиях Locust ключи могут называться total_rps или current_rps
+            rps = data.get("total_rps") or data.get("current_rps") or 0
+            p95 = data.get("current_response_time_percentile_95") or data.get("ninetieth_response_time") or 0
+
+            # 2. Извлекаем список всех эндпоинтов (для таблицы)
+            # Мы берем список 'stats', но убираем из него строку "Total",
+            # так как она дублирует общие показатели
+            raw_stats = data.get("stats", [])
+            full_stats = [s for s in raw_stats if s.get("name") != "Total"]
+
+            return {
+                "rps": rps,
+                "p95": p95,
+                "fail_ratio": data.get("fail_ratio", 0),
+                "full_stats": full_stats  # ТЕПЕРЬ ДАННЫЕ ДЛЯ ТАБЛИЦЫ ЕСТЬ ТУТ
+            }
+    except Exception as e:
+        print(f"Locust fetch error: {e}")
+        return {"rps": 0, "p95": 0, "fail_ratio": 0, "full_stats": []}
+
+
+@router.post("/locust/start")
+async def start_locust(user_count: int = 100, spawn_rate: int = 10):
+    success = await locust_manager.start_swarm(user_count, spawn_rate)
+    if not success:
+        raise HTTPException(status_code=503, detail="Could not start Locust swarm")
+    return {"status": "swarming started"}
+
+
+@router.post("/locust/stop")
+async def stop_locust():
+    await locust_manager.stop_swarm()
+    return {"status": "swarming stopped"}
+
+
+# --- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ---
+
 @router.post("/clear-database")
 async def clear_db(request: Request):
     r = request.app.state.redis
-    keys_to_delete = ["lottery:tickets", "stats:total_bets", "lottery:result", "lottery:winning_number",
-                      "stats:scan_progress"]
-    await r.delete(*keys_to_delete)
-    await r.set("lottery:status", "idle")
+    await LotteryService.clear_all_data(r)
     return {"status": "Database cleared"}
