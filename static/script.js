@@ -256,3 +256,75 @@ async function startLocust() {
 async function stopLocust() {
     await fetch('/locust/stop', { method: 'POST' });
 }
+
+async function runOfficialDraw() {
+    const btn = document.getElementById('draw-btn');
+    const display = document.getElementById('winner-display');
+
+    // Блокируем кнопку, чтобы не спамили
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    addLog("Initiating official draw via Lua...", "info");
+
+    try {
+        const res = await fetch('/admin/draw', { method: 'POST' });
+        const data = await res.json();
+
+        if (res.ok) {
+            // Разбиваем строку по 2 символа для красивого отображения
+            const formatted = data.winner.match(/.{1,2}/g).join(' ');
+            display.innerText = formatted;
+            display.style.color = "var(--neon-green)";
+            display.style.textShadow = "0 0 15px var(--neon-green)";
+            addLog(`Draw successful! Winning ticket: ${data.winner}`, "success");
+        } else {
+            addLog(`Error: ${data.detail}`, "error");
+            display.innerText = "FAILED";
+        }
+    } catch (e) {
+        addLog("Server connection lost", "error");
+        display.innerText = "ERROR";
+    } finally {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    const drawBtn = document.getElementById("draw-btn");
+    if (drawBtn) {
+        drawBtn.addEventListener("click", runOfficialDraw);
+    }
+});
+
+async function runOfficialDraw() {
+    const display = document.getElementById("winner-display");
+
+    display.innerText = "DRAWING...";
+    display.style.color = "#00d4ff";
+
+    try {
+        const res = await fetch("/admin/draw", { method: "POST" });
+        const data = await res.json();
+
+        if (!res.ok) {
+            display.innerText = "ERROR";
+            display.style.color = "#ff4444";
+            console.error(data.detail);
+            return;
+        }
+
+        const winner = data.winner;
+
+        // split into 2-digit pairs
+        const formatted = winner.match(/.{1,2}/g).join(" ");
+
+        display.innerText = formatted;
+        display.style.color = "var(--neon-green)";
+
+    } catch (err) {
+        display.innerText = "SERVER ERROR";
+        display.style.color = "#ff4444";
+        console.error(err);
+    }
+}

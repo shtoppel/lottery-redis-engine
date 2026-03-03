@@ -1,10 +1,26 @@
 import asyncio
 import random
 import time
-from app.core.lua_templates import LUA_GEN_SCRIPT, LUA_MULTI_CHECK
+from app.core.lua_templates import LUA_GEN_SCRIPT, LUA_MULTI_CHECK, LUA_DRAW_SCRIPT
+from fastapi import HTTPException, Request
+from app.routers import lottery
 
 
 class LotteryService:
+    @staticmethod
+    async def admin_draw(request: Request):
+        r = request.app.state.redis
+
+        winner = await r.eval(LUA_DRAW_SCRIPT, 2, "lottery:winning_number", "lottery:tickets")
+
+        if not winner:
+            raise HTTPException(status_code=400, detail="Ticket pool is empty. Generate tickets first.")
+
+        # normalize bytes -> str
+        if isinstance(winner, (bytes, bytearray)):
+            winner = winner.decode()
+
+        return {"status": "ok", "winner": winner}
     @staticmethod
     async def generate_lua_batch(r, total_count: int):
         await r.set("lottery:status", "generating")
