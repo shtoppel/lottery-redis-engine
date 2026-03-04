@@ -238,7 +238,7 @@ def _pick_percentile(container: dict, p: str, default=0):
 async def get_locust_stats():
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get("http://127.0.0.1:8089/stats/requests")
+            resp = await client.get("http://locust:8089/stats/requests")
             data = resp.json()
 
         raw_stats = data.get("stats", []) or []
@@ -327,3 +327,4 @@ async def clear_db(request: Request):
     r = request.app.state.redis
     await LotteryService.clear_all_data(r)
     return {"status": "ok"}
+

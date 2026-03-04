@@ -1,11 +1,14 @@
 import asyncio
+import os
+
 import redis.asyncio as redis
 import time
 
 
 async def run_load_test():
     # Establish connection to Redis
-    r = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
     start_time = time.time()
     batch_size = 5000  # Number of commands per pipeline batch

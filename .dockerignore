@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.py[cod]
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Tests
+tests/
+pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Build
+build/
+dist/
+
+
+# Docker
+docker-compose.yml
+Dockerfile*
+.dockerignore
+
+# Local configs
+.env
+.env.local
+
+# Cache
+.cache/
+
+# Locust reports
+locust_report*
