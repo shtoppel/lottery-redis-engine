@@ -10,6 +10,8 @@ import {
   renderMultiResult,
   renderSystemStats,
   renderLocustStats,
+  renderRaceStats,
+  renderSummaryTerminal,
 } from "./ui.js";
 
 // --------------------
@@ -102,6 +104,115 @@ async function runSteadyTraffic({ users, spawn, holdMs }) {
   await api.locustStop();
   uiLog("Scenario completed: Steady finished.", "success");
 }
+
+export function initControlTabs() {
+  const tabLocust = dom.tabLocust?.();
+  const tabRace = dom.tabRace?.();
+  const panelLocust = dom.panelLocust?.();
+  const panelRace = dom.panelRace?.();
+  const metricsLocust = dom.metricsLocust?.();
+  const metricsRace = dom.metricsRace?.();
+
+  if (!tabLocust || !tabRace || !panelLocust || !panelRace || !metricsLocust || !metricsRace) {
+    console.warn("initControlTabs: some tab elements not found");
+    return;
+  }
+
+  function showLocust() {
+    tabLocust.classList.add("active");
+    tabRace.classList.remove("active");
+
+    panelLocust.classList.add("active");
+    panelRace.classList.remove("active");
+
+    metricsLocust.classList.add("active");
+    metricsRace.classList.remove("active");
+  }
+
+  function showRace() {
+    tabRace.classList.add("active");
+    tabLocust.classList.remove("active");
+
+    panelRace.classList.add("active");
+    panelLocust.classList.remove("active");
+
+    metricsRace.classList.add("active");
+    metricsLocust.classList.remove("active");
+  }
+
+  tabLocust.onclick = showLocust;
+  tabRace.onclick = showRace;
+
+  showLocust();
+}
+
+export async function onRaceRun() {
+  const mode = dom.raceMode?.().value || "unsafe";
+  const concurrency = parseInt(dom.raceConcurrency?.().value || "200", 10) || 200;
+
+  uiLog(`Running race test: mode=${mode}, concurrency=${concurrency}`, "info");
+
+  const { res, data } = await api.raceRun(mode, concurrency);
+
+  if (!res?.ok) {
+    const msg = data?.detail || "Race test failed";
+    uiLog(msg, "error");
+
+    renderRaceStats({
+      stored_success_count: 0,
+      duplicate_bug: false,
+      duration_ms: 0,
+      final_claimed_by: "-",
+      winners: [],
+      mode,
+      concurrency,
+    });
+
+    return;
+  }
+
+  renderRaceStats(data);
+
+await renderSummaryTerminal([
+  "booting analyzer...",
+  "collecting race metrics...",
+  `mode: ${data.mode}`,
+  `concurrency: ${data.concurrency}`,
+  `success count: ${data.stored_success_count}`,
+  `duplicate bug: ${data.duplicate_bug ? "YES" : "NO"}`,
+  data.duplicate_bug
+    ? "verdict: race condition reproduced"
+    : "verdict: atomic protection works"
+]);
+
+if (data?.duplicate_bug) {
+  uiLog("Race condition detected: duplicate claim occurred.", "warning");
+} else {
+  uiLog("Race test completed safely.", "success");
+}
+}
+
+export async function onRaceReset() {
+  const { res, data } = await api.raceReset();
+
+  if (!res?.ok) {
+    uiLog(data?.detail || "Race reset failed", "error");
+    return;
+  }
+
+  renderRaceStats({
+    stored_success_count: 0,
+    duplicate_bug: false,
+    duration_ms: 0,
+    final_claimed_by: "-",
+    winners: [],
+    mode: "-",
+    concurrency: 0,
+  });
+
+  uiLog("Race state reset.", "info");
+}
+
 
 // --------------------
 // Legacy preset controls (optional)
@@ -314,3 +425,55 @@ export async function onLocustStop() {
   await api.locustStop();
   uiLog("Locust stop requested.", "info");
 }
+
+// --------------------
+// Demo Ramp Scenario
+// --------------------
+export async function onRunDemo() {
+  uiLog("Demo started: clear -> generate -> draw -> ramp -> report", "info");
+
+  const btn = dom.btnRunDemo?.();
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = "0.5";
+  }
+
+  try {
+    const { res, data } = await api.runDemo();
+
+    if (!res?.ok) {
+      uiLog(data?.detail || "Demo failed", "error");
+      return;
+    }
+
+    uiLog("Demo finished successfully.", "success");
+
+    const reportRes = await api.latestDemoReport();
+    const s = reportRes.data?.summary;
+
+await renderSummaryTerminal([
+  "analyzing ramp scenario...",
+  `steps executed: ${s?.steps_executed ?? "-"}`,
+  `peak rps: ${s?.peak_rps ?? "-"}`,
+  `worst p95: ${s?.worst_p95 ?? "-"} ms`,
+  `stable up to: ${s?.stable_users ?? "-"} users`,
+  `fail rate at last step: ${s?.last_fail_rate ?? "-"}%`,
+  `bottleneck: ${s?.bottleneck ?? "unknown"}`,
+  `verdict: ${s?.verdict ?? "no verdict"}`
+]);
+
+
+    if (data?.report_path) {
+      uiLog(`Report saved: ${data.report_path}`, "success");
+    }
+  } catch (e) {
+    console.error(e);
+    uiLog("Demo failed (network/server error).", "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.style.opacity = "1";
+    }
+  }
+}
+

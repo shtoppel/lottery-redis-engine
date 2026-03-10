@@ -1,7 +1,12 @@
 import asyncio
+import os
 import time
+from datetime import datetime
+import json
 import psutil
 import httpx
+from app.services.race_service import RaceService
+from fastapi import Query
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import ORJSONResponse
@@ -9,7 +14,7 @@ from pydantic import BaseModel
 
 from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
 
-from app.core.lua_templates import LUA_MULTI_CHECK
+from app.core.lua_templates import LUA_MULTI_CHECK, LUA_DRAW_SCRIPT
 from app.services.lottery_service import LotteryService
 from app.services.locust_service import LocustService
 
@@ -234,8 +239,7 @@ def _pick_percentile(container: dict, p: str, default=0):
     return default
 
 
-@router.get("/locust-stats", response_class=ORJSONResponse)
-async def get_locust_stats():
+async def get_locust_stats_internal():
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             resp = await client.get("http://locust:8089/stats/requests")
@@ -274,7 +278,6 @@ async def get_locust_stats():
                 "min_response_time": get_val(s, "min_response_time"),
                 "max_response_time": get_val(s, "max_response_time"),
 
-                # 👇 вот ключевой фикс
                 "ninetieth_response_time": get_val(s, "response_time_percentile_0.95"),
                 "ninety_ninth_response_time": get_val(s, "response_time_percentile_0.99"),
 
@@ -292,6 +295,11 @@ async def get_locust_stats():
     except Exception as e:
         print(f"Locust fetch error: {e}")
         return {"rps": 0, "p95": 0, "p99": 0, "fail_ratio": 0, "full_stats": []}
+
+
+@router.get("/locust-stats", response_class=ORJSONResponse)
+async def get_locust_stats():
+    return await get_locust_stats_internal()
 
 
 # ------------------------
@@ -328,3 +336,325 @@ async def clear_db(request: Request):
     await LotteryService.clear_all_data(r)
     return {"status": "ok"}
 
+@router.post("/demo/run", response_class=ORJSONResponse)
+async def run_demo(request: Request):
+    r = request.app.state.redis
+
+    total_tickets = 1_000_000
+
+    # Ramp profile for demo
+    steps = [
+        {"users": 500, "spawn_rate": 200, "hold_s": 10},
+        {"users": 1000, "spawn_rate": 300, "hold_s": 10},
+        {"users": 1500, "spawn_rate": 400, "hold_s": 10},
+        {"users": 2000, "spawn_rate": 500, "hold_s": 10},
+    ]
+
+    report = {
+        "started_at": datetime.utcnow().isoformat() + "Z",
+        "tickets": total_tickets,
+        "steps": [],
+    }
+
+    try:
+        # 1) clear
+        await LotteryService.clear_all_data(r)
+
+        # 2) generate lua
+        t0 = time.perf_counter()
+        await LotteryService.generate_lua_batch(r, total_tickets)
+        report["generate_lua_sec"] = round(time.perf_counter() - t0, 3)
+
+        # 3) draw
+        winner = await r.eval(LUA_DRAW_SCRIPT, 2, "lottery:winning_number", "lottery:tickets")
+        if not winner:
+            return {
+                "status": "error",
+                "detail": "Draw failed after generation."
+            }
+
+        if isinstance(winner, (bytes, bytearray)):
+            winner = winner.decode()
+
+        report["winner"] = winner
+
+        # 4) stop current locust swarm just in case
+        await locust_manager.stop_swarm()
+        await asyncio.sleep(1.0)
+
+        # 5) ramp steps
+        for step in steps:
+            await locust_manager.start_swarm(step["users"], step["spawn_rate"])
+            await asyncio.sleep(step["hold_s"])
+
+            stats_snapshot = await get_locust_stats_internal()
+
+            report["steps"].append({
+                "users": step["users"],
+                "spawn_rate": step["spawn_rate"],
+                "hold_s": step["hold_s"],
+                "stats": stats_snapshot,
+            })
+
+        # 6) stop at end
+        await locust_manager.stop_swarm()
+
+        report["finished_at"] = datetime.utcnow().isoformat() + "Z"
+
+        # 7) save report
+        os.makedirs("reports", exist_ok=True)
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        report_path = os.path.join("reports", f"demo_report_{ts}.json")
+
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+
+        return {
+            "status": "ok",
+            "report_path": report_path,
+            "report": report,
+        }
+
+    except Exception as e:
+        print(f"Demo run error: {e}")
+        return {
+            "status": "error",
+            "detail": str(e),
+            "report": report,
+        }
+
+@router.get("/demo/latest-report")
+async def latest_demo_report():
+    files = sorted(os.listdir("reports"), reverse=True)
+
+    if not files:
+        return {"status": "no reports"}
+
+    path = os.path.join("reports", files[0])
+
+    with open(path, "r") as f:
+        report = json.load(f)
+
+    summary = build_demo_summary(report)
+
+    return {
+        "report": report,
+        "summary": summary
+    }
+
+# ------------------------
+# Race Condition Test (Safe/Unsafe)
+# ------------------------
+
+@router.post("/race/reset", response_class=ORJSONResponse)
+async def race_reset(request: Request):
+    r = request.app.state.redis
+    return await RaceService.reset(r)
+
+
+@router.post("/race/claim-unsafe", response_class=ORJSONResponse)
+async def race_claim_unsafe(
+    request: Request,
+    user_id: str = Query(...),
+    delay_ms: int = Query(10),
+):
+    r = request.app.state.redis
+    return await RaceService.claim_unsafe(r, user_id=user_id, delay_ms=delay_ms)
+
+
+@router.post("/race/claim-safe", response_class=ORJSONResponse)
+async def race_claim_safe(
+    request: Request,
+    user_id: str = Query(...),
+):
+    r = request.app.state.redis
+    return await RaceService.claim_safe(r, user_id=user_id)
+
+
+@router.post("/race/run", response_class=ORJSONResponse)
+async def race_run(
+    request: Request,
+    mode: str = Query("unsafe"),
+    concurrency: int = Query(200),
+    delay_ms: int = Query(10),
+):
+    """
+    Run real concurrent HTTP requests against race claim endpoints.
+    Requires:
+    - generated ticket pool
+    - winner selected via draw
+    """
+    r = request.app.state.redis
+
+    ready, detail = await RaceService.ensure_ready(r)
+    if not ready:
+        return ORJSONResponse(
+            status_code=400,
+            content={"status": "error", "detail": detail},
+        )
+
+    await RaceService.reset(r)
+
+    if mode not in {"unsafe", "safe"}:
+        return ORJSONResponse(
+            status_code=400,
+            content={"status": "error", "detail": "mode must be 'unsafe' or 'safe'"},
+        )
+
+    # keep race realistic but bounded
+    concurrency = max(1, min(concurrency, 1000))
+    delay_ms = max(0, min(delay_ms, 100))
+
+    endpoint = "/race/claim-unsafe" if mode == "unsafe" else "/race/claim-safe"
+
+    # from inside backend container, call backend via docker service DNS
+    base_url = "http://backend:8000"
+
+    started = time.perf_counter()
+
+    parsed_results = []
+    network_errors = 0
+    batch_size = 100
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for start_idx in range(1, concurrency + 1, batch_size):
+            end_idx = min(start_idx + batch_size, concurrency + 1)
+            tasks = []
+
+            for i in range(start_idx, end_idx):
+                user_id = f"user_{i}"
+                params = {"user_id": user_id}
+
+                if mode == "unsafe":
+                    params["delay_ms"] = delay_ms
+
+                tasks.append(client.post(f"{base_url}{endpoint}", params=params))
+
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for resp in responses:
+                if isinstance(resp, Exception):
+                    network_errors += 1
+                    continue
+
+                try:
+                    parsed_results.append(resp.json())
+                except Exception:
+                    network_errors += 1
+
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+
+    success_count = sum(1 for item in parsed_results if item.get("claimed") is True)
+    winners = [item["user_id"] for item in parsed_results if item.get("claimed") is True]
+
+    stored_success_count = int(await r.get(RaceService.SUCCESS_COUNT_KEY) or 0)
+    final_claimed_by = await r.get(RaceService.CLAIMED_KEY)
+
+    duplicate_bug = stored_success_count > 1
+
+    return {
+        "status": "ok",
+        "mode": mode,
+        "concurrency": concurrency,
+        "delay_ms": delay_ms if mode == "unsafe" else 0,
+        "duration_ms": duration_ms,
+        "success_count": success_count,
+        "stored_success_count": stored_success_count,
+        "duplicate_bug": duplicate_bug,
+        "final_claimed_by": final_claimed_by,
+        "winners": winners,
+        "network_errors": network_errors,
+    }
+
+# ------------------------
+# Build Demo Summary
+# ------------------------
+
+def build_demo_summary(report: dict) -> dict:
+    steps = report.get("steps", [])
+
+    if not steps:
+        return {
+            "steps_executed": 0,
+            "peak_rps": 0,
+            "worst_p95": 0,
+            "stable_users": 0,
+            "last_fail_rate": 0,
+            "bottleneck": "unknown",
+            "verdict": "no data",
+        }
+
+    peak_rps = 0.0
+    worst_p95 = 0.0
+    stable_users = 0
+    collapse_point = None
+
+    pull_p95_worst = 0.0
+    check_p95_worst = 0.0
+
+    for step in steps:
+        users = step.get("users", 0)
+        stats = step.get("stats", {}) or {}
+
+        rps = stats.get("rps", 0) or 0
+        p95 = stats.get("p95", 0) or 0
+        fail_rate = stats.get("fail_ratio", 0) or 0
+
+        peak_rps = max(peak_rps, rps)
+        worst_p95 = max(worst_p95, p95)
+
+        # Считаем шаг стабильным, если нет ошибок и p95 ещё в разумных пределах
+        if fail_rate == 0 and p95 < 1000:
+            stable_users = users
+
+        # Если система начала реально сыпаться — фиксируем первую точку
+        if collapse_point is None and (fail_rate > 0 or p95 >= 1000):
+            collapse_point = users
+
+        # Анализируем endpoint bottleneck
+        for item in stats.get("full_stats", []):
+            name = item.get("name", "")
+
+            if name == "/get-random-complex-ticket":
+                pull_p95_worst = max(
+                    pull_p95_worst,
+                    item.get("ninety_ninth_response_time", 0) or 0
+                )
+
+            elif name == "/check/:ticket_id":
+                check_p95_worst = max(
+                    check_p95_worst,
+                    item.get("ninety_ninth_response_time", 0) or 0
+                )
+
+    last_stats = (steps[-1].get("stats", {}) or {})
+    last_fail_rate = last_stats.get("fail_ratio", 0) or 0
+
+    # Определяем bottleneck
+    if pull_p95_worst > check_p95_worst:
+        bottleneck = "ticket pull endpoint"
+    elif check_p95_worst > pull_p95_worst:
+        bottleneck = "ticket verification"
+    else:
+        bottleneck = "balanced load"
+
+    # Verdict
+    if last_fail_rate == 0 and worst_p95 < 300:
+        verdict = "system stable under configured ramp"
+    elif last_fail_rate == 0 and worst_p95 < 1000:
+        verdict = "system stable, but latency degrades at upper ramp"
+    elif last_fail_rate < 5:
+        verdict = "degraded under high load"
+    else:
+        verdict = "system unstable at upper ramp levels"
+
+    return {
+        "steps_executed": len(steps),
+        "peak_rps": round(peak_rps, 2),
+        "worst_p95": round(worst_p95, 2),
+        "stable_users": stable_users,
+        "last_fail_rate": round(last_fail_rate, 2),
+        "bottleneck": bottleneck,
+        "collapse_point": collapse_point,
+        "verdict": verdict,
+    }

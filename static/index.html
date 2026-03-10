@@ -1,200 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Redis High-Load System</title>
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --neon-green: #00ff41;
-      --neon-blue: #00d4ff;
-      --dark-bg: #0d0208;
-      --panel-bg: #1a1a1a;
-    }
-
-    body {
-      font-family: 'Share Tech Mono', monospace;
-      background: var(--dark-bg);
-      color: var(--neon-green);
-      margin: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-height: 100vh;
-    }
-
-    .stats-container {
-      display: flex;
-      width: 100%;
-      justify-content: center;
-      gap: 40px;
-      padding: 15px 0;
-      background: rgba(0, 255, 65, 0.05);
-      border-bottom: 1px solid var(--neon-green);
-      box-shadow: 0 0 20px rgba(0, 255, 65, 0.1);
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-
-    .stat-box { font-size: 14px; text-align: center; }
-    .stat-value { color: #fff; display: block; font-size: 28px; text-shadow: 0 0 10px var(--neon-green); }
-    .stat-value.blue { text-shadow: 0 0 10px var(--neon-blue); color: var(--neon-blue); }
-
-    .top-progress {
-      width: 100%;
-      height: 4px;
-      background: #000;
-      position: relative;
-    }
-    #progress-bar {
-      width: 0%;
-      height: 100%;
-      background: var(--neon-green);
-      box-shadow: 0 0 15px var(--neon-green);
-      transition: width 0.2s ease;
-    }
-
-    .main-panel {
-      width: 98%;
-      max-width: 1300px;
-      background: var(--panel-bg);
-      margin: 20px 0;
-      padding: 25px;
-      border: 1px solid #333;
-      border-radius: 4px;
-      display: grid;
-      grid-template-columns: 1fr 450px;
-      gap: 30px;
-    }
-
-    h1 {
-      grid-column: 1 / -1;
-      color: #fff;
-      border-left: 4px solid var(--neon-green);
-      padding-left: 15px;
-      text-transform: uppercase;
-      margin: 0 0 10px 0;
-      font-size: 24px;
-    }
-
-    .generator-section { border-right: 1px solid #333; padding-right: 20px; }
-
-    .locust-panel {
-      background: rgba(0, 0, 0, 0.3);
-      padding: 20px;
-      border: 1px solid #444;
-      border-radius: 4px;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .control-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-
-    input[type="number"], select {
-      background: #000;
-      border: 1px solid var(--neon-green);
-      color: var(--neon-green);
-      padding: 8px;
-      font-size: 16px;
-      font-family: inherit;
-      outline: none;
-    }
-
-    button {
-      background: transparent;
-      color: var(--neon-green);
-      padding: 10px 15px;
-      font-family: inherit;
-      font-weight: bold;
-      border: 1px solid var(--neon-green);
-      cursor: pointer;
-      transition: all 0.2s ease;
-      text-transform: uppercase;
-      font-size: 12px;
-    }
-
-    button:hover {
-      background: var(--neon-green);
-      color: #000;
-      box-shadow: 0 0 10px var(--neon-green);
-    }
-
-    .lua-btn { border-color: var(--neon-blue); color: var(--neon-blue); }
-    .lua-btn:hover { background: var(--neon-blue); color: #000; box-shadow: 0 0 10px var(--neon-blue); }
-
-    .btn-danger { border-color: #ff4444; color: #ff4444; }
-    .btn-danger:hover { background: #ff4444; color: #000; box-shadow: 0 0 10px #ff4444; }
-
-    .numbers-display {
-      background: #000;
-      padding: 10px;
-      border: 1px dashed #444;
-      margin: 10px 0;
-      font-size: 1.2em;
-      color: #fff;
-      display: flex;
-      gap: 5px;
-      justify-content: center;
-    }
-
-    .status-msg { color: #888; font-size: 12px; margin-top: 5px; font-style: italic; }
-    label { display: block; font-size: 11px; color: #888; margin-bottom: 4px; text-transform: uppercase; }
-
-    .locust-stats-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-      margin-top: 20px;
-      margin-bottom: 20px;
-    }
-    .stat-card-small {
-      background: #222;
-      padding: 10px;
-      border-left: 2px solid var(--neon-blue);
-    }
-    .stat-card-small small { font-size: 9px; color: #888; display: block; margin-bottom: 4px; }
-    .stat-card-small .val { font-size: 16px; color: #fff; }
-
-    .table-wrapper {
-      overflow-x: auto;
-      border-top: 1px solid #444;
-      padding-top: 15px;
-      margin-top: 5px;
-    }
-    .stats-table {
-      width: 100%;
-      font-size: 10px;
-      border-collapse: collapse;
-      text-align: right;
-    }
-    .stats-table th {
-      color: #666;
-      padding: 5px;
-      border-bottom: 1px solid #333;
-      font-weight: normal;
-    }
-    .stats-table td {
-      padding: 6px 4px;
-      border-bottom: 1px solid #222;
-    }
-    .stats-table tr:hover { background: rgba(255,255,255,0.02); }
-
-    .w-100 { width: 100%; }
-    .mt-10 { margin-top: 10px; }
-    .mb-20 { margin-bottom: 20px; }
-    .hr {
-      border: 0;
-      border-top: 1px solid #333;
-      margin: 20px 0;
-    }
-  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
 
@@ -211,62 +22,64 @@
   </div>
 
   <div class="main-panel">
-    <h1>High-Load Simulator <small style="font-size: 12px; color: #555;">v2.1.0</small></h1>
+    <h1>High-Load Simulator <small class="version-tag">v2.1.0</small></h1>
 
     <div class="generator-section">
       <label id="gen-label">1. CONFIGURE PARTICIPANTS POOL:</label>
       <div class="control-row">
-        <input type="number" id="participants" value="100000" style="width: 150px;">
+        <input type="number" id="participants" value="100000" class="participants-input" />
         <button id="btn-gen-python">Python</button>
         <button id="btn-gen-lua" class="lua-btn">Lua Turbo</button>
+        <button id="btnRunDemo" class="btn-cyan">Run Demo Ramp Test</button>
       </div>
 
       <div id="benchmark-result" class="status-msg">
         Last: <span id="timer-val">0.000</span>s | <span id="eff-rps">0</span> RPS
       </div>
 
-      <hr class="hr">
+      <hr class="hr" />
 
-      <label style="color: var(--neon-blue);">OFFICIAL DRAW (ADMIN)</label>
+      <label class="label-blue">OFFICIAL DRAW (ADMIN)</label>
       <div class="control-row">
         <button id="btn-draw" class="lua-btn w-100">⚡ PERFORM OFFICIAL DRAW ⚡</button>
       </div>
 
-      <div style="text-align:center" class="mt-10">
-        <span id="winner-display" style="font-size:20px; letter-spacing:4px; color:#888;">NOT DRAWN</span>
+      <div class="winner-wrap mt-10">
+        <span id="winner-display" class="winner-display">NOT DRAWN</span>
       </div>
 
-      <hr class="hr">
+      <hr class="hr" />
 
-      <label style="color: var(--neon-blue);">SCENARIOS (UI CONTROL)</label>
+      <label class="label-blue">SCENARIOS (UI CONTROL)</label>
 
       <div class="control-row">
-        <button id="btn-burst-5000" class="lua-btn" style="flex:1;">Run Burst 5000</button>
-        <button id="btn-burst-2000" class="lua-btn" style="flex:1;">Run Burst 2000</button>
+        <button id="btn-burst-5000" class="lua-btn flex-1">Run Burst 5000</button>
+        <button id="btn-burst-2000" class="lua-btn flex-1">Run Burst 2000</button>
       </div>
 
       <div class="control-row">
-        <button id="btn-steady" style="flex:1;">Run Steady 2000</button>
-        <button id="btn-scenario-stop" class="btn-danger" style="flex:1;">Stop Scenario</button>
+        <button id="btn-steady" class="flex-1">Run Steady 2000</button>
+        <button id="btn-scenario-stop" class="btn-danger flex-1">Stop Scenario</button>
       </div>
 
-      <hr class="hr">
+      <hr class="hr" />
 
       <label>YOUR CURRENT TICKET:</label>
       <div id="user-numbers" class="numbers-display">
         <span>XX</span><span>XX</span><span>XX</span><span>XX</span>
         <span>XX</span><span>XX</span><span>XX</span><span>XX</span>
       </div>
-      <div id="ticket-status" class="status-msg" style="text-align: center; margin-bottom: 10px;"></div>
 
-      <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-        <button id="btn-pull" style="flex:1;">2a. PULL FROM DB</button>
-        <button id="btn-verify" class="lua-btn" style="flex:1;">2b. VERIFY (1 TICKET)</button>
+      <div id="ticket-status" class="status-msg centered mb-10"></div>
+
+      <div class="ticket-actions">
+        <button id="btn-pull" class="flex-1">2a. PULL FROM DB</button>
+        <button id="btn-verify" class="lua-btn flex-1">2b. VERIFY (1 TICKET)</button>
       </div>
 
       <label>MASS VALIDATION (MIN 10,000):</label>
       <div class="control-row">
-        <input type="number" id="multi-count" value="10000" min="10000" step="1000" style="width: 140px;">
+        <input type="number" id="multi-count" value="10000" min="10000" step="1000" class="multi-count-input" />
         <button id="btn-multi" class="lua-btn">Multi-Check Lua</button>
       </div>
 
@@ -274,62 +87,8 @@
       <div id="game-status" class="status-msg">> Awaiting commands...</div>
     </div>
 
-    <div class="locust-panel">
-      <h3 style="margin: 0 0 15px 0; font-size: 16px; color: var(--neon-blue);">🚀 LOAD TEST (LOCUST)</h3>
-
-      <label>Scenario</label>
-      <select id="locust-scenario" class="w-100" style="margin-bottom:15px;">
-        <option value="realistic">Realistic (Daily Traffic)</option>
-        <option value="burst">Burst After Draw</option>
-      </select>
-
-      <label>Users</label>
-      <input type="number" id="locust-users" value="100" class="w-100" style="margin-bottom: 10px;">
-
-      <label>Spawn Rate</label>
-      <input type="number" id="locust-spawn" value="10" class="w-100" style="margin-bottom: 20px;">
-
-      <div style="display:flex; gap:10px;">
-        <button id="btn-locust-start" style="flex:2; border-color:#00ff41;">START</button>
-        <button id="btn-locust-stop" class="btn-danger" style="flex:1;">STOP</button>
-      </div>
-
-      <div class="locust-stats-grid">
-        <div class="stat-card-small">
-          <small>SWARM RPS</small>
-          <div id="external-rps" class="val">0</div>
-        </div>
-        <div class="stat-card-small">
-          <small>P95 LATENCY</small>
-          <div id="p95-latency" class="val">0 ms</div>
-        </div>
-        <div class="stat-card-small">
-          <small>FAIL RATE</small>
-          <div id="fail-rate" class="val">0%</div>
-        </div>
-      </div>
-
-      <label>Detailed Endpoint Report:</label>
-      <div class="table-wrapper">
-        <table class="stats-table">
-          <thead>
-            <tr>
-              <th style="text-align:left">Name</th>
-              <th>Reqs</th>
-              <th>Fail</th>
-              <th>Med</th>
-              <th>95%</th>
-              <th>99%</th>
-              <th>Avg</th>
-              <th>Min</th>
-              <th>Max</th>
-              <th>RPS</th>
-            </tr>
-          </thead>
-          <tbody id="stats-body"></tbody>
-        </table>
-      </div>
-    </div>
+    <!-- Right panel is loaded dynamically -->
+    <div id="control-panel-slot"></div>
   </div>
 
   <script type="module" src="/static/js/main.js"></script>

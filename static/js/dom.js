@@ -13,6 +13,9 @@ export const dom = {
   timerVal: () => $("timer-val"),
   effRps: () => $("eff-rps"),
 
+  // demo ramp test
+  btnRunDemo: () => $("btnRunDemo"),
+
   // inputs
   participantsInput: () => $("participants"),
   multiCountInput: () => $("multi-count"),
@@ -55,4 +58,26 @@ export const dom = {
   scenarioStatus: () => $("scenario-status"),
   scenarioStep: () => $("scenario-step"),
   scenarioMsg: () => $("scenario-msg"),
+
+  // ---- control tabs ----
+  tabLocust: () => $("tab-locust"),
+  tabRace: () => $("tab-race"),
+
+  panelLocust: () => $("panel-locust"),
+  panelRace: () => $("panel-race"),
+
+  metricsLocust: () => $("metrics-locust"),
+  metricsRace: () => $("metrics-race"),
+
+  // ---- race test controls ----
+  raceMode: () => $("race-mode"),
+  raceConcurrency: () => $("race-concurrency"),
+  btnRaceRun: () => $("btn-race-run"),
+  btnRaceReset: () => $("btn-race-reset"),
+
+  // ---- race stats ----
+  raceSuccessCount: () => $("race-success-count"),
+  raceDuplicateBug: () => $("race-duplicate-bug"),
+  raceDuration: () => $("race-duration"),
+  raceResult: () => $("race-result"),
 };

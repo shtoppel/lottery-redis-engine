@@ -1,0 +1,217 @@
+{
+  "started_at": "2026-03-10T13:54:44.285393Z",
+  "tickets": 1000000,
+  "steps": [
+    {
+      "users": 500,
+      "spawn_rate": 200,
+      "hold_s": 10,
+      "stats": {
+        "rps": 670.1428571428571,
+        "p95": 43.0,
+        "p99": 48.0,
+        "fail_ratio": 0.0,
+        "full_stats": [
+          {
+            "name": "/check/:ticket_id",
+            "method": "GET",
+            "num_requests": 6191,
+            "num_failures": 0,
+            "median_response_time": 2.0,
+            "avg_response_time": 5.189435445646927,
+            "min_response_time": 1.0,
+            "max_response_time": 58.0,
+            "ninetieth_response_time": 43.0,
+            "ninety_ninth_response_time": 48.0,
+            "current_rps": 598.7142857142857
+          },
+          {
+            "name": "/get-random-complex-ticket",
+            "method": "GET",
+            "num_requests": 500,
+            "num_failures": 0,
+            "median_response_time": 2.0,
+            "avg_response_time": 2.939830355999905,
+            "min_response_time": 1.0,
+            "max_response_time": 49.0,
+            "ninetieth_response_time": 5.0,
+            "ninety_ninth_response_time": 28.0,
+            "current_rps": 71.42857142857143
+          },
+          {
+            "name": "Aggregated",
+            "method": "",
+            "num_requests": 6691,
+            "num_failures": 0,
+            "median_response_time": 2.0,
+            "avg_response_time": 5.021328653713963,
+            "min_response_time": 1.0,
+            "max_response_time": 58.0,
+            "ninetieth_response_time": 43.0,
+            "ninety_ninth_response_time": 48.0,
+            "current_rps": 670.1428571428571
+          }
+        ]
+      }
+    },
+    {
+      "users": 1000,
+      "spawn_rate": 300,
+      "hold_s": 10,
+      "stats": {
+        "rps": 1413.1,
+        "p95": 27.0,
+        "p99": 48.0,
+        "fail_ratio": 0.0,
+        "full_stats": [
+          {
+            "name": "/check/:ticket_id",
+            "method": "GET",
+            "num_requests": 23570,
+            "num_failures": 0,
+            "median_response_time": 2.0,
+            "avg_response_time": 4.705160103903258,
+            "min_response_time": 1.0,
+            "max_response_time": 80.0,
+            "ninetieth_response_time": 29.0,
+            "ninety_ninth_response_time": 48.0,
+            "current_rps": 1363.1
+          },
+          {
+            "name": "/get-random-complex-ticket",
+            "method": "GET",
+            "num_requests": 1000,
+            "num_failures": 0,
+            "median_response_time": 2.0,
+            "avg_response_time": 4.983785202999853,
+            "min_response_time": 1.0,
+            "max_response_time": 54.0,
+            "ninetieth_response_time": 23.0,
+            "ninety_ninth_response_time": 47.0,
+            "current_rps": 50.0
+          },
+          {
+            "name": "Aggregated",
+            "method": "",
+            "num_requests": 24570,
+            "num_failures": 0,
+            "median_response_time": 2.0,
+            "avg_response_time": 4.716500156776541,
+            "min_response_time": 1.0,
+            "max_response_time": 80.0,
+            "ninetieth_response_time": 27.0,
+            "ninety_ninth_response_time": 48.0,
+            "current_rps": 1413.1
+          }
+        ]
+      }
+    },
+    {
+      "users": 1500,
+      "spawn_rate": 400,
+      "hold_s": 10,
+      "stats": {
+        "rps": 2051.8,
+        "p95": 86.0,
+        "p99": 130.0,
+        "fail_ratio": 0.0,
+        "full_stats": [
+          {
+            "name": "/check/:ticket_id",
+            "method": "GET",
+            "num_requests": 42774,
+            "num_failures": 0,
+            "median_response_time": 3.0,
+            "avg_response_time": 18.271531904240767,
+            "min_response_time": 1.0,
+            "max_response_time": 170.0,
+            "ninetieth_response_time": 82.0,
+            "ninety_ninth_response_time": 120.0,
+            "current_rps": 2001.8
+          },
+          {
+            "name": "/get-random-complex-ticket",
+            "method": "GET",
+            "num_requests": 1500,
+            "num_failures": 0,
+            "median_response_time": 4.0,
+            "avg_response_time": 59.330492652000125,
+            "min_response_time": 1.0,
+            "max_response_time": 759.0,
+            "ninetieth_response_time": 340.0,
+            "ninety_ninth_response_time": 530.0,
+            "current_rps": 50.0
+          },
+          {
+            "name": "Aggregated",
+            "method": "",
+            "num_requests": 44274,
+            "num_failures": 0,
+            "median_response_time": 3.0,
+            "avg_response_time": 19.662606600939505,
+            "min_response_time": 1.0,
+            "max_response_time": 759.0,
+            "ninetieth_response_time": 86.0,
+            "ninety_ninth_response_time": 130.0,
+            "current_rps": 2051.8
+          }
+        ]
+      }
+    },
+    {
+      "users": 2000,
+      "spawn_rate": 500,
+      "hold_s": 10,
+      "stats": {
+        "rps": 2273.4,
+        "p95": 250.0,
+        "p99": 340.0,
+        "fail_ratio": 0.0,
+        "full_stats": [
+          {
+            "name": "/check/:ticket_id",
+            "method": "GET",
+            "num_requests": 68929,
+            "num_failures": 0,
+            "median_response_time": 23.0,
+            "avg_response_time": 75.27456081576705,
+            "min_response_time": 1.0,
+            "max_response_time": 407.0,
+            "ninetieth_response_time": 250.0,
+            "ninety_ninth_response_time": 300.0,
+            "current_rps": 2223.4
+          },
+          {
+            "name": "/get-random-complex-ticket",
+            "method": "GET",
+            "num_requests": 2000,
+            "num_failures": 0,
+            "median_response_time": 54.0,
+            "avg_response_time": 361.19583117900004,
+            "min_response_time": 1.0,
+            "max_response_time": 2446.0,
+            "ninetieth_response_time": 2000.0,
+            "ninety_ninth_response_time": 2400.0,
+            "current_rps": 50.0
+          },
+          {
+            "name": "Aggregated",
+            "method": "",
+            "num_requests": 70929,
+            "num_failures": 0,
+            "median_response_time": 23.0,
+            "avg_response_time": 83.33674329016424,
+            "min_response_time": 1.0,
+            "max_response_time": 2446.0,
+            "ninetieth_response_time": 250.0,
+            "ninety_ninth_response_time": 340.0,
+            "current_rps": 2273.4
+          }
+        ]
+      }
+    }
+  ],
+  "generate_lua_sec": 2.457,
+  "winner": "5028081128759350",
+  "finished_at": "2026-03-10T13:55:29.576552Z"
+}

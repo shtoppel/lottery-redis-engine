@@ -23,7 +23,14 @@ export function uiLog(msg, type = "info") {
   const el = dom.gameStatus();
   if (!el) return;
   const color =
-    type === "error" ? "#ff4444" : type === "success" ? "#00d4ff" : "#888";
+    type === "error"
+      ? "#ff4444"
+      : type === "success"
+      ? "#00d4ff"
+      : type === "warning"
+      ? "#ffb347"
+      : "#888";
+
   el.innerHTML = `> <span style="color:${color}">${escapeHtml(msg)}</span>`;
 }
 
@@ -68,15 +75,19 @@ export function setTicketStatus(text, color = "#888") {
 }
 
 export function renderTopStats(total, rps) {
-  dom.totalCounter().textContent = Number(total || 0).toLocaleString();
-  dom.rpsCounter().textContent = Number(rps || 0).toLocaleString();
+  if (dom.totalCounter()) {
+    dom.totalCounter().textContent = Number(total || 0).toLocaleString();
+  }
+  if (dom.rpsCounter()) {
+    dom.rpsCounter().textContent = Number(rps || 0).toLocaleString();
+  }
 }
 
 export function renderProgress(percent) {
   const bar = dom.progressBar();
   const pctEl = dom.progressPercent();
   if (bar) bar.style.width = `${percent}%`;
-  if (pctEl) pctEl.textContent = `READY: ${Math.round(percent)}%`;
+  if (pctEl) pctEl.textContent = `${Math.round(percent)}%`;
 }
 
 export function renderGenerationBenchmark(seconds, effRps) {
@@ -108,11 +119,12 @@ export function renderMultiResult(data) {
 
 export function renderSystemStats(redisMemHuman, sysUsedBytes, sysTotalBytes) {
   if (dom.redisMemVal()) dom.redisMemVal().textContent = redisMemHuman || "0B";
-  if (dom.sysMemVal())
+  if (dom.sysMemVal()) {
     dom.sysMemVal().textContent = `${formatBytes(sysUsedBytes)} / ${formatBytes(
       sysTotalBytes,
       0
     )}`;
+  }
 }
 
 // ----------------------
@@ -128,7 +140,6 @@ function pick(obj, keys, fallback = 0) {
 }
 
 function pickPercentile(obj, pStr, fallback = 0) {
-  // Locust может вернуть percentiles как dict: {"0.95": 123, "0.99": 456}
   const rp = obj?.response_time_percentiles;
   if (rp && typeof rp === "object") {
     const v = rp[pStr] ?? rp[Number(pStr)] ?? rp[String(pStr)];
@@ -138,17 +149,18 @@ function pickPercentile(obj, pStr, fallback = 0) {
 }
 
 export function renderLocustStats(data) {
-  // top cards
-  if (dom.externalRps())
+  if (dom.externalRps()) {
     dom.externalRps().textContent = Math.floor(data?.rps || 0).toLocaleString();
+  }
 
-  if (dom.p95Latency())
+  if (dom.p95Latency()) {
     dom.p95Latency().textContent = `${Math.round(data?.p95 || 0)} ms`;
+  }
 
-  if (dom.failRate())
+  if (dom.failRate()) {
     dom.failRate().textContent = `${(((data?.fail_ratio || 0) * 100) || 0).toFixed(1)}%`;
+  }
 
-  // table
   const tbody = dom.statsBody();
   if (!tbody) return;
 
@@ -172,27 +184,33 @@ export function renderLocustStats(data) {
       const min = pick(s, ["min_response_time"], 0);
       const max = pick(s, ["max_response_time"], 0);
 
-      // ВАЖНО: 95/99 могут быть или отдельными ключами, или в response_time_percentiles
       const p95 =
-  pick(s, [
-    "ninetieth_response_time",            // <-- ТВОЙ КЛЮЧ
-    "response_time_percentile_95",
-    "current_response_time_percentile_95",
-  ], null) ??
-  pickPercentile(s, "0.95", 0) ??
-  0;
+        pick(
+          s,
+          [
+            "ninetieth_response_time",
+            "response_time_percentile_95",
+            "current_response_time_percentile_95",
+          ],
+          null
+        ) ??
+        pickPercentile(s, "0.95", 0) ??
+        0;
 
-const p99 =
-  pick(s, [
-    "ninety_ninth_response_time",         // <-- ТВОЙ КЛЮЧ
-    "response_time_percentile_99",
-    "current_response_time_percentile_99",
-  ], null) ??
-  pickPercentile(s, "0.99", 0) ??
-  0;
+      const p99 =
+        pick(
+          s,
+          [
+            "ninety_ninth_response_time",
+            "response_time_percentile_99",
+            "current_response_time_percentile_99",
+          ],
+          null
+        ) ??
+        pickPercentile(s, "0.99", 0) ??
+        0;
 
       const rps = pick(s, ["current_rps"], 0);
-
       const failColor = (fails || 0) > 0 ? "#ff4444" : "#888";
 
       return `
@@ -213,4 +231,55 @@ const p99 =
       `;
     })
     .join("");
+}
+
+// ----------------------
+// Race stats rendering
+// ----------------------
+
+export function renderRaceStats(data) {
+  if (dom.raceSuccessCount()) {
+    dom.raceSuccessCount().textContent = String(
+      data?.stored_success_count ?? data?.success_count ?? 0
+    );
+  }
+
+  if (dom.raceDuplicateBug()) {
+    dom.raceDuplicateBug().textContent = data?.duplicate_bug ? "YES" : "NO";
+    dom.raceDuplicateBug().style.color = data?.duplicate_bug
+      ? "#ff4444"
+      : "var(--neon-green)";
+  }
+
+  if (dom.raceDuration()) {
+    dom.raceDuration().textContent = `${data?.duration_ms ?? 0} ms`;
+  }
+
+  if (dom.raceResult()) {
+    dom.raceResult().textContent =
+      `Mode: ${data?.mode ?? "-"}\n` +
+      `Concurrency: ${data?.concurrency ?? "-"}\n` +
+      `Final claimed by: ${data?.final_claimed_by ?? "-"}\n` +
+      `Success count: ${data?.stored_success_count ?? data?.success_count ?? 0}\n` +
+      `Duplicate bug: ${data?.duplicate_bug ? "YES" : "NO"}\n` +
+      `Winners: ${(data?.winners || []).join(", ") || "-"}`;
+  }
+}
+
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export async function renderSummaryTerminal(lines, speed = 220) {
+  const el = document.getElementById("summary-terminal");
+  if (!el) return;
+
+  el.textContent = "";
+
+  for (const line of lines) {
+    el.textContent += `> ${line}\n`;
+    el.scrollTop = el.scrollHeight;
+    await sleep(speed);
+  }
 }

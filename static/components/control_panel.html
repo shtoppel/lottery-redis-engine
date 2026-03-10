@@ -1,0 +1,112 @@
+<div class="locust-panel">
+  <div class="control-tabs">
+    <button id="tab-locust" class="control-tab active">🚀 LOCUST LOAD</button>
+    <button id="tab-race" class="control-tab">⚡ RACE TEST</button>
+  </div>
+
+  <!-- LOCUST TAB -->
+  <section id="panel-locust" class="control-panel active">
+    <h3 class="panel-heading">🚀 LOAD TEST (LOCUST)</h3>
+
+    <label>Scenario</label>
+    <select id="locust-scenario" class="w-100 mb-15">
+      <option value="realistic">Realistic (Daily Traffic)</option>
+      <option value="burst">Burst After Draw</option>
+    </select>
+
+    <label>Users</label>
+    <input type="number" id="locust-users" value="100" class="w-100 mb-10" />
+
+    <label>Spawn Rate</label>
+    <input type="number" id="locust-spawn" value="10" class="w-100 mb-20" />
+
+    <div class="btn-row">
+      <button id="btn-locust-start" class="flex-2 btn-green">START</button>
+      <button id="btn-locust-stop" class="btn-danger flex-1">STOP</button>
+    </div>
+  </section>
+
+  <!-- RACE TAB -->
+  <section id="panel-race" class="control-panel">
+    <h3 class="panel-heading">⚡ RACE CONDITION TEST</h3>
+
+    <label>Mode</label>
+    <select id="race-mode" class="w-100 mb-15">
+      <option value="unsafe">Unsafe</option>
+      <option value="safe">Safe</option>
+    </select>
+
+    <label>Concurrency</label>
+    <input type="number" id="race-concurrency" value="200" max="1000" class="w-100 mb-20" />
+
+    <div class="btn-row">
+      <button id="btn-race-run" class="flex-2 btn-green">RUN</button>
+      <button id="btn-race-reset" class="btn-danger flex-1">RESET</button>
+    </div>
+  </section>
+
+  <!-- LOCUST METRICS -->
+  <section id="metrics-locust" class="metrics-panel active">
+    <div class="locust-stats-grid">
+      <div class="stat-card-small">
+        <small>SWARM RPS</small>
+        <div id="external-rps" class="val">0</div>
+      </div>
+      <div class="stat-card-small">
+        <small>P95 LATENCY</small>
+        <div id="p95-latency" class="val">0 ms</div>
+      </div>
+      <div class="stat-card-small">
+        <small>FAIL RATE</small>
+        <div id="fail-rate" class="val">0.0%</div>
+      </div>
+    </div>
+
+    <label>Detailed Endpoint Report:</label>
+    <div class="table-wrapper">
+      <table class="stats-table">
+        <thead>
+          <tr>
+            <th class="text-left">Name</th>
+            <th>Reqs</th>
+            <th>Med</th>
+            <th>95%</th>
+            <th>99%</th>
+            <th>Avg</th>
+            <th>Min</th>
+            <th>Max</th>
+            <th>RPS</th>
+              <th>Fail</th>
+          </tr>
+        </thead>
+        <tbody id="stats-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- RACE METRICS -->
+  <section id="metrics-race" class="metrics-panel">
+    <div class="locust-stats-grid">
+      <div class="stat-card-small">
+        <small>SUCCESS COUNT</small>
+        <div id="race-success-count" class="val">0</div>
+      </div>
+      <div class="stat-card-small">
+        <small>DUPLICATE BUG</small>
+        <div id="race-duplicate-bug" class="val">NO</div>
+      </div>
+      <div class="stat-card-small">
+        <small>DURATION</small>
+        <div id="race-duration" class="val">0 ms</div>
+      </div>
+    </div>
+
+    <label>Race Result:</label>
+    <div id="race-result" class="race-result-box">No race executed yet.</div>
+  </section>
+</div>
+
+<div class="terminal-box">
+  <div class="terminal-header">SYSTEM SUMMARY</div>
+  <pre id="summary-terminal" class="terminal-output">> idle...</pre>
+</div>

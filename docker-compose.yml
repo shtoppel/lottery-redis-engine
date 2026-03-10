@@ -23,6 +23,8 @@ services:
         - LOCUST_WEB_URL=http://locust:8089
     depends_on:
       - redis-server
+    volumes:
+        - .:/app
 
   locust:
     build:
