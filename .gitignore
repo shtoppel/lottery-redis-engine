@@ -4,3 +4,5 @@ venv/
 .venv/
 *.pyc
 dump.rdb
+# runtime reports
+reports/

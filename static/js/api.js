@@ -71,4 +71,6 @@ export const api = {
   raceReset: () => fetchJson("/race/reset", { method: "POST" }),
 
   latestDemoReport: () => fetchJson("/demo/latest-report", { method: "GET" }),
+
+  clearDatabase: () => fetchJson("/clear-database", { method: "POST" }),
 };

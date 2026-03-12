@@ -27,6 +27,10 @@ import {
   onBurst2000,
   onSteady2000,
   onScenarioStop,
+
+  //Clear Database
+  onClearDatabase,
+  
 } from "./controllers.js";
 
 import { renderTicketPairs, setTicketStatus, setWinnerDisplay } from "./ui.js";
@@ -62,6 +66,9 @@ function bind() {
   dom.btnBurst2000()?.addEventListener("click", onBurst2000);
   dom.btnSteady()?.addEventListener("click", onSteady2000);
   dom.btnScenarioStop()?.addEventListener("click", onScenarioStop);
+
+  // clear sim button
+  dom.btnClear()?.addEventListener("click", onClearDatabase);
 
   // tabs
   initControlTabs?.();

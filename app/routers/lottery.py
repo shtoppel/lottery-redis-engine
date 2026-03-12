@@ -5,6 +5,8 @@ from datetime import datetime
 import json
 import psutil
 import httpx
+from starlette.responses import JSONResponse
+
 from app.services.race_service import RaceService
 from fastapi import Query
 
@@ -84,13 +86,34 @@ async def tickets_sample(count: int, request: Request):
 
 
 # ------------------------
-# Admin
+# Admin Draw
 # ------------------------
 
-@router.post("/admin/draw", response_class=ORJSONResponse)
+@router.post("/admin/draw")
 async def admin_draw(request: Request):
-    return await LotteryService.admin_draw(request)
+    r = request.app.state.redis
 
+    tickets_count = await r.scard("lottery:tickets")
+    if not tickets_count or tickets_count <= 0:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Ticket pool is empty. Generate participants first."}
+        )
+
+    winner = await r.eval(
+        LUA_DRAW_SCRIPT,
+        2,
+        "lottery:winning_number",
+        "lottery:tickets"
+    )
+
+    if not winner:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Unable to perform draw."}
+        )
+
+    return {"winner": winner}
 
 # ------------------------
 # Generation

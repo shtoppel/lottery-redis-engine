@@ -1,4 +1,8 @@
 // static/js/controllers.js
+let revealTimer = null;
+let noiseTimer = null;
+
+
 import { state } from "./state.js";
 import { dom } from "./dom.js";
 import { api } from "./api.js";
@@ -12,6 +16,10 @@ import {
   renderLocustStats,
   renderRaceStats,
   renderSummaryTerminal,
+  clearSummaryTerminal,
+  appendSummaryLine,
+  renderRevealFrame,
+  showHiddenWinner,
 } from "./ui.js";
 
 // --------------------
@@ -21,14 +29,83 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function formatTicket(ticket) {
+  if (!ticket) return "-";
+  return String(ticket).match(/.{1,2}/g)?.join(" ") || String(ticket);
+}
+
+function resetPersonalScenarioState() {
+  state.myCheckResult = null;
+  state.myCheckLatencyMs = null;
+  state.myCheckExists = null;
+  state.myCheckIsWinner = null;
+}
+
+function buildScenarioVerdict(stats) {
+  if (!stats) return "unknown";
+
+  const p95 = Number(stats?.p95 ?? 0);
+  const failRatio = Number(stats?.fail_ratio ?? 0);
+
+  if (failRatio > 0) return "errors detected under load";
+  if (p95 > 1000) return "high latency under heavy load";
+  if (p95 > 300) return "stable, but latency is rising";
+  return "system stable under live traffic";
+}
+
+async function showPersonalScenarioSummary() {
+  const stats = state.latestLocustStats || null;
+
+  const peakRps =
+    stats?.rps !== undefined && stats?.rps !== null
+      ? Number(stats.rps).toFixed(1)
+      : "-";
+
+  const worstP95 =
+    stats?.p95 !== undefined && stats?.p95 !== null
+      ? Math.round(Number(stats.p95))
+      : "-";
+
+  const failRate =
+    stats?.fail_ratio !== undefined && stats?.fail_ratio !== null
+      ? `${(Number(stats.fail_ratio) * 100).toFixed(1)}%`
+      : "-";
+
+  const myResult =
+    state.myCheckIsWinner === true
+      ? "jackpot"
+      : state.myCheckExists === true
+      ? "no match"
+      : state.myCheckExists === false
+      ? "not found"
+      : "not checked";
+
+  await renderSummaryTerminal([
+    "generating final report...",
+    `scenario: ${state.currentScenarioName || "-"}`,
+    `winning ticket: ${state.winningTicket || "-"}`,
+    `your ticket: ${formatTicket(state.currentTicket)}`,
+    `your result: ${myResult}`,
+    `your request latency: ${state.myCheckLatencyMs ?? "-"} ms`,
+    `peak rps: ${peakRps}`,
+    `worst p95: ${worstP95} ms`,
+    `fail rate: ${failRate}`,
+    `verdict: ${buildScenarioVerdict(stats)}`
+  ]);
+}
+
 let presetAbort = false;
 
 async function stopLoadNow(message = "Scenario stopped.") {
   presetAbort = true;
   await api.locustStop();
+  stopWinnerReveal(true);
+  state.isScenarioRunning = false;
   uiLog(message, "info");
+  appendSummaryLine("live traffic stopped");
+  appendSummaryLine("full winning ticket revealed");
+  await showPersonalScenarioSummary();
 }
-
 // --------------------
 // UI Scenario buttons (index.html)
 // --------------------
@@ -43,7 +120,6 @@ export async function onBurst5000() {
 
 export async function onBurst2000() {
   presetAbort = false;
-  // Spawn rate can be high to simulate instant spike.
   await runBurstAfterDraw({ users: 2000, spawn: 2000, holdMs: 20000, idleMs: 10000 });
 }
 
@@ -56,9 +132,16 @@ export async function onSteady2000() {
 // Scenario implementations
 // --------------------
 async function runBurstAfterDraw({ users, spawn, holdMs, idleMs }) {
+  state.currentScenarioName = `burst ${users}`;
+  state.isScenarioRunning = false;
+  resetPersonalScenarioState();
+
+  clearSummaryTerminal();
+  appendSummaryLine(`scenario selected: burst ${users}`);
+  appendSummaryLine("waiting for idle phase...");
+
   uiLog(`Scenario started: Burst after draw (${users}).`, "info");
 
-  // stop any current test
   await api.locustStop();
   await sleep(800);
 
@@ -67,27 +150,53 @@ async function runBurstAfterDraw({ users, spawn, holdMs, idleMs }) {
   if (presetAbort) return;
 
   uiLog("Performing admin draw...", "info");
+  appendSummaryLine("performing official draw...");
+
   const draw = await api.adminDraw();
   if (!draw?.res?.ok) {
     uiLog(draw?.data?.detail || "Draw failed. Burst cancelled.", "error");
+    appendSummaryLine(`draw failed: ${draw?.data?.detail || "unknown error"}`);
     return;
   }
 
   const winner = String(draw?.data?.winner || "");
+  state.winningTicket = winner;
+
+  appendSummaryLine("official draw completed");
+  appendSummaryLine(`winning ticket: ${winner || "-"}`);
+
   uiLog(`Draw OK. Winner: ${winner || "-"}`, "success");
   if (presetAbort) return;
 
   uiLog(`BURST NOW -> users=${users}, spawn_rate=${spawn}`, "info");
+  appendSummaryLine("live traffic spike started");
+  appendSummaryLine("you can verify your ticket during load");
+
+  state.isScenarioRunning = true;
   await api.locustStart(users, spawn);
-
+  startWinnerReveal(holdMs);
   await sleep(holdMs);
-  if (presetAbort) return;
 
+  if (presetAbort) return;
   await api.locustStop();
+  stopWinnerReveal(true);
+  state.isScenarioRunning = false;
   uiLog("Scenario completed: Burst finished.", "success");
+  appendSummaryLine("scenario finished");
+  appendSummaryLine("full winning ticket revealed");
+
+await showPersonalScenarioSummary();
 }
 
 async function runSteadyTraffic({ users, spawn, holdMs }) {
+  state.currentScenarioName = `steady ${users}`;
+  state.isScenarioRunning = false;
+  resetPersonalScenarioState();
+
+  clearSummaryTerminal();
+  appendSummaryLine(`scenario selected: steady ${users}`);
+  appendSummaryLine("starting sustained live traffic...");
+
   uiLog(`Scenario started: Steady traffic (${users}).`, "info");
 
   await api.locustStop();
@@ -96,13 +205,24 @@ async function runSteadyTraffic({ users, spawn, holdMs }) {
   if (presetAbort) return;
 
   uiLog(`Ramp to steady -> users=${users}, spawn_rate=${spawn}`, "info");
+  appendSummaryLine("live traffic started");
+  appendSummaryLine("you can verify your ticket during load");
+
+  state.isScenarioRunning = true;
   await api.locustStart(users, spawn);
+  startWinnerReveal(holdMs);
 
   await sleep(holdMs);
   if (presetAbort) return;
 
   await api.locustStop();
+  stopWinnerReveal(true);
+  state.isScenarioRunning = false;
   uiLog("Scenario completed: Steady finished.", "success");
+  appendSummaryLine("scenario finished");
+  appendSummaryLine("full winning ticket revealed");
+
+  await showPersonalScenarioSummary();
 }
 
 export function initControlTabs() {
@@ -173,23 +293,24 @@ export async function onRaceRun() {
 
   renderRaceStats(data);
 
-await renderSummaryTerminal([
-  "booting analyzer...",
-  "collecting race metrics...",
-  `mode: ${data.mode}`,
-  `concurrency: ${data.concurrency}`,
-  `success count: ${data.stored_success_count}`,
-  `duplicate bug: ${data.duplicate_bug ? "YES" : "NO"}`,
-  data.duplicate_bug
-    ? "verdict: race condition reproduced"
-    : "verdict: atomic protection works"
-]);
+  await renderSummaryTerminal([
+    "booting analyzer...",
+    "collecting race metrics...",
+    `mode: ${data.mode}`,
+    `concurrency: ${data.concurrency}`,
+    `winning ticket: ${state.winningTicket || "-"}`,
+    `success count: ${data.stored_success_count}`,
+    `duplicate bug: ${data.duplicate_bug ? "YES" : "NO"}`,
+    data.duplicate_bug
+      ? "verdict: race condition reproduced"
+      : "verdict: atomic protection works"
+  ]);
 
-if (data?.duplicate_bug) {
-  uiLog("Race condition detected: duplicate claim occurred.", "warning");
-} else {
-  uiLog("Race test completed safely.", "success");
-}
+  if (data?.duplicate_bug) {
+    uiLog("Race condition detected: duplicate claim occurred.", "warning");
+  } else {
+    uiLog("Race test completed safely.", "success");
+  }
 }
 
 export async function onRaceReset() {
@@ -213,10 +334,8 @@ export async function onRaceReset() {
   uiLog("Race state reset.", "info");
 }
 
-
 // --------------------
 // Legacy preset controls (optional)
-// If you removed preset UI from HTML, these are unused.
 // --------------------
 export async function stopPreset() {
   await stopLoadNow("Preset stopped.");
@@ -227,7 +346,9 @@ export async function runPreset() {
 
   const preset = dom.presetSelect?.()?.value || "gradual";
   if (preset === "gradual") return runGradualRamp();
-  if (preset === "burst") return runBurstAfterDraw({ users: 5000, spawn: 5000, holdMs: 20000, idleMs: 10000 });
+  if (preset === "burst") {
+    return runBurstAfterDraw({ users: 5000, spawn: 5000, holdMs: 20000, idleMs: 10000 });
+  }
 
   uiLog("Unknown preset.", "error");
 }
@@ -243,6 +364,13 @@ async function runGradualRamp() {
     { users: 3000, spawn: 300, holdMs: 10000 },
   ];
 
+  state.currentScenarioName = "gradual ramp";
+  state.isScenarioRunning = false;
+  resetPersonalScenarioState();
+
+  clearSummaryTerminal();
+  appendSummaryLine("scenario selected: gradual ramp");
+
   await api.locustStop();
   await sleep(800);
 
@@ -251,17 +379,23 @@ async function runGradualRamp() {
 
     if (step.users === 0) {
       uiLog(`Hold idle for ${Math.round(step.holdMs / 1000)}s...`, "info");
+      appendSummaryLine("idle phase...");
       await sleep(step.holdMs);
       continue;
     }
 
     uiLog(`Swarm -> users=${step.users}, spawn_rate=${step.spawn}`, "info");
-    await api.locustStart(step.users, step.spawn);
+    appendSummaryLine(`step: users=${step.users}, spawn=${step.spawn}`);
 
+    state.isScenarioRunning = true;
+    await api.locustStart(step.users, step.spawn);
     await sleep(step.holdMs);
   }
 
+  state.isScenarioRunning = false;
   uiLog("Preset completed: ramp finished.", "success");
+  appendSummaryLine("scenario finished");
+  await showPersonalScenarioSummary();
 }
 
 // --------------------
@@ -285,6 +419,7 @@ export async function onGenerate(type) {
 
 export async function onAdminDraw() {
   const btn = dom.btnDraw();
+
   if (btn) {
     btn.disabled = true;
     btn.style.opacity = "0.5";
@@ -292,23 +427,32 @@ export async function onAdminDraw() {
 
   setWinnerDisplay("DRAWING...", "loading");
   uiLog("Starting official draw...", "info");
+  appendSummaryLine("performing official draw...");
 
   try {
     const { res, data } = await api.adminDraw();
     if (!res?.ok) {
       setWinnerDisplay("FAILED", "error");
       uiLog(data?.detail || "Draw failed", "error");
+      appendSummaryLine(`draw failed: ${data?.detail || "unknown error"}`);
       return;
     }
 
     const winner = String(data?.winner || "");
-    const formatted = winner.match(/.{1,2}/g)?.join(" ") || winner;
-    setWinnerDisplay(formatted, "ok");
-    uiLog(`Draw successful. Winner: ${winner}`, "success");
+    state.winningTicket = winner;
+    const pairs = winner.match(/.{1,2}/g) || [];
+    showHiddenWinner(pairs.length);
+
+uiLog(`Draw successful. Winner locked.`, "success");
+
+appendSummaryLine("official draw completed");
+appendSummaryLine("winning ticket locked");
+appendSummaryLine("winner reveal will run during live scenario");
   } catch (e) {
     console.error(e);
     setWinnerDisplay("ERROR", "error");
     uiLog("Draw failed (network error).", "error");
+    appendSummaryLine("draw failed: network error");
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -318,6 +462,15 @@ export async function onAdminDraw() {
 }
 
 export async function onPullTicket() {
+  if (!state.winningTicket) {
+    uiLog("Run admin draw first.", "error");
+    renderTicketPairs(null);
+    state.currentTicket = "";
+    setTicketStatus("DRAW REQUIRED", "#ff4444");
+    appendSummaryLine("cannot pull ticket: official draw not completed");
+    return;
+  }
+
   const { res, data } = await api.pullTicket();
 
   if (!res?.ok || data?.status !== "ok") {
@@ -334,38 +487,64 @@ export async function onPullTicket() {
   renderTicketPairs(pairs);
   setTicketStatus("Ticket pulled. Ready to verify.", "#888");
   uiLog("Ticket loaded.", "success");
+  appendSummaryLine("personal ticket pulled from pool");
+  appendSummaryLine(`your ticket: ${formatTicket(state.currentTicket)}`);
 }
 
 export async function onVerifyTicket() {
   if (!state.currentTicket) {
     uiLog("Pull a ticket first.", "error");
+    appendSummaryLine("cannot verify: no ticket loaded");
     return;
   }
 
+  if (state.isScenarioRunning) {
+    appendSummaryLine("joining live traffic...");
+  }
+
+  appendSummaryLine("verifying your ticket...");
+
+  const started = performance.now();
   const { res, data } = await api.checkTicket(state.currentTicket);
+  const latency = Math.round(performance.now() - started);
+
+  state.myCheckLatencyMs = latency;
+  state.myCheckResult = data;
+
   if (!res?.ok) {
     uiLog(data?.detail || "Verification failed", "error");
+    appendSummaryLine(`request failed: ${data?.detail || "verification error"}`);
     return;
   }
 
   if (data?.status !== "ok") {
     uiLog("Draw not ready. Run admin draw first.", "error");
     setTicketStatus("DRAW NOT READY", "#ff4444");
+    appendSummaryLine("draw not ready");
     return;
   }
+
+  state.myCheckExists = data?.exists ?? false;
+  state.myCheckIsWinner = data?.is_winner ?? false;
+
+  appendSummaryLine(`your response time: ${latency} ms`);
 
   if (!data.exists) {
     uiLog("Ticket not found in pool.", "info");
     setTicketStatus("NOT FOUND", "#ff4444");
+    appendSummaryLine("result: ticket not found");
     return;
   }
 
   if (data.is_winner) {
     setTicketStatus("JACKPOT!", "var(--neon-green)");
     uiLog("Winner confirmed.", "success");
+    appendSummaryLine("result: jackpot");
+    appendSummaryLine("prize claim available");
   } else {
     setTicketStatus("NO MATCH", "#ff4444");
     uiLog("No match.", "info");
+    appendSummaryLine("result: no match");
   }
 }
 
@@ -407,6 +586,8 @@ export async function tickSystemStats() {
 export async function tickLocustStats() {
   const { res, data } = await api.locustStats();
   if (!res?.ok) return;
+
+  state.latestLocustStats = data;
   renderLocustStats(data);
 }
 
@@ -417,13 +598,30 @@ export async function onLocustStart() {
   const u = parseInt(dom.locustUsersInput().value || "0", 10) || 100;
   const s = parseInt(dom.locustSpawnInput().value || "0", 10) || 10;
 
+  state.currentScenarioName = "manual locust load";
+  state.isScenarioRunning = true;
+  resetPersonalScenarioState();
+
+  clearSummaryTerminal();
+  appendSummaryLine("scenario selected: manual locust load");
+  appendSummaryLine(`target users: ${u}`);
+  appendSummaryLine(`spawn rate: ${s}`);
+  if (state.winningTicket) {
+    appendSummaryLine(`winning ticket: ${state.winningTicket}`);
+  }
+  appendSummaryLine("live traffic started");
+  appendSummaryLine("you can verify your ticket during load");
+
   await api.locustStart(u, s);
   uiLog(`Locust start requested: users=${u}, spawn=${s}`, "info");
 }
 
 export async function onLocustStop() {
   await api.locustStop();
+  state.isScenarioRunning = false;
   uiLog("Locust stop requested.", "info");
+  appendSummaryLine("live traffic stopped");
+  await showPersonalScenarioSummary();
 }
 
 // --------------------
@@ -451,17 +649,16 @@ export async function onRunDemo() {
     const reportRes = await api.latestDemoReport();
     const s = reportRes.data?.summary;
 
-await renderSummaryTerminal([
-  "analyzing ramp scenario...",
-  `steps executed: ${s?.steps_executed ?? "-"}`,
-  `peak rps: ${s?.peak_rps ?? "-"}`,
-  `worst p95: ${s?.worst_p95 ?? "-"} ms`,
-  `stable up to: ${s?.stable_users ?? "-"} users`,
-  `fail rate at last step: ${s?.last_fail_rate ?? "-"}%`,
-  `bottleneck: ${s?.bottleneck ?? "unknown"}`,
-  `verdict: ${s?.verdict ?? "no verdict"}`
-]);
-
+    await renderSummaryTerminal([
+      "analyzing ramp scenario...",
+      `steps executed: ${s?.steps_executed ?? "-"}`,
+      `peak rps: ${s?.peak_rps ?? "-"}`,
+      `worst p95: ${s?.worst_p95 ?? "-"} ms`,
+      `stable up to: ${s?.stable_users ?? "-"} users`,
+      `fail rate at last step: ${s?.last_fail_rate ?? "-"}%`,
+      `bottleneck: ${s?.bottleneck ?? "unknown"}`,
+      `verdict: ${s?.verdict ?? "no verdict"}`
+    ]);
 
     if (data?.report_path) {
       uiLog(`Report saved: ${data.report_path}`, "success");
@@ -477,3 +674,66 @@ await renderSummaryTerminal([
   }
 }
 
+// --------------------
+// RESET SIMULATION BUTTON
+// --------------------
+export async function onClearDatabase() {
+  if (!confirm("Reset simulation state?")) return;
+
+  const { res, data } = await api.clearDatabase();
+
+  if (!res?.ok) {
+    uiLog(data?.detail || "State reset failed", "error");
+    return;
+  }
+
+  uiLog("Simulation state cleared.", "success");
+  location.reload();
+}
+
+//TICKET ANIMATION
+
+function startWinnerReveal(durationMs) {
+
+  if (!state.winningTicket) return;
+
+  const pairs = state.winningTicket.match(/.{1,2}/g) || [];
+  const stepMs = durationMs / pairs.length;
+
+  let revealed = 0;
+
+  renderRevealFrame(pairs, 0);
+
+  // красный шум 20 fps
+  noiseTimer = setInterval(() => {
+    renderRevealFrame(pairs, revealed);
+  }, 50);
+
+  // постепенное раскрытие
+  revealTimer = setInterval(() => {
+    revealed++;
+
+    if (revealed >= pairs.length) {
+      stopWinnerReveal(true);
+    }
+
+  }, stepMs);
+}
+
+function stopWinnerReveal(revealAll = false) {
+
+  if (noiseTimer) {
+    clearInterval(noiseTimer);
+    noiseTimer = null;
+  }
+
+  if (revealTimer) {
+    clearInterval(revealTimer);
+    revealTimer = null;
+  }
+
+  if (revealAll && state.winningTicket) {
+    const pairs = state.winningTicket.match(/.{1,2}/g) || [];
+    renderRevealFrame(pairs, pairs.length);
+  }
+}

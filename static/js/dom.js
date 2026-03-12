@@ -80,4 +80,8 @@ export const dom = {
   raceDuplicateBug: () => $("race-duplicate-bug"),
   raceDuration: () => $("race-duration"),
   raceResult: () => $("race-result"),
+
+
+  btnClear: () => $("btn-clear"),
+
 };

@@ -283,3 +283,54 @@ export async function renderSummaryTerminal(lines, speed = 220) {
     await sleep(speed);
   }
 }
+
+export function clearSummaryTerminal() {
+  const el = document.getElementById("summary-terminal");
+  if (!el) return;
+  el.textContent = "> idle...";
+}
+
+export function appendSummaryLine(line) {
+  const el = document.getElementById("summary-terminal");
+  if (!el) return;
+
+  if (el.textContent.trim() === "> idle...") {
+    el.textContent = "";
+  }
+
+  el.textContent += `> ${line}\n`;
+  el.scrollTop = el.scrollHeight;
+}
+
+//Ticket Animation
+function randomPair() {
+  return String(Math.floor(Math.random() * 100)).padStart(2, "0");
+}
+
+export function renderRevealFrame(pairs, revealed) {
+  const el = document.getElementById("winner-display");
+  if (!el) return;
+
+  const html = pairs
+    .map((p, i) => {
+      if (i < revealed) {
+        return `<span style="color:var(--neon-green); text-shadow:0 0 10px var(--neon-green)">${p}</span>`;
+      }
+
+      return `<span style="color:#ff4444">${randomPair()}</span>`;
+    })
+    .join(" ");
+
+  el.innerHTML = html;
+}
+
+export function showHiddenWinner(slotCount = 8) {
+  const el = document.getElementById("winner-display");
+  if (!el) return;
+
+  el.innerHTML = Array.from({ length: slotCount }, () => {
+    return `<span style="color:var(--neon-green); opacity:0.35; text-shadow:0 0 8px var(--neon-green)">XX</span>`;
+  }).join(" ");
+
+  el.style.textShadow = "none";
+}
