@@ -479,19 +479,21 @@ async def race_reset(request: Request):
 async def race_claim_unsafe(
     request: Request,
     user_id: str = Query(...),
+    ticket_id: str = Query(...),
     delay_ms: int = Query(10),
 ):
     r = request.app.state.redis
-    return await RaceService.claim_unsafe(r, user_id=user_id, delay_ms=delay_ms)
+    return await RaceService.claim_unsafe(r, user_id=user_id, ticket_id=ticket_id, delay_ms=delay_ms)
 
 
 @router.post("/race/claim-safe", response_class=ORJSONResponse)
 async def race_claim_safe(
     request: Request,
     user_id: str = Query(...),
+    ticket_id: str = Query(...),
 ):
     r = request.app.state.redis
-    return await RaceService.claim_safe(r, user_id=user_id)
+    return await RaceService.claim_safe(r, user_id=user_id, ticket_id=ticket_id)
 
 
 @router.post("/race/run", response_class=ORJSONResponse)
@@ -517,6 +519,13 @@ async def race_run(
         )
 
     await RaceService.reset(r)
+
+    winning_ticket = await r.get("lottery:winning_number")
+    if not winning_ticket:
+        return ORJSONResponse(
+            status_code=400,
+            content={"status": "error", "detail": "Draw not ready. Run official draw first."},
+        )
 
     if mode not in {"unsafe", "safe"}:
         return ORJSONResponse(
@@ -548,7 +557,7 @@ async def race_run(
 
             for i in range(start_idx, end_idx):
                 user_id = f"user_{i}"
-                params = {"user_id": user_id}
+                params = {"user_id": user_id, "ticket_id": winning_ticket}
 
                 if mode == "unsafe":
                     params["delay_ms"] = delay_ms
@@ -640,6 +649,7 @@ async def race_run(
         "mode": mode,
         "concurrency": concurrency,
         "delay_ms": delay_ms if mode == "unsafe" else 0,
+        "winning_ticket": winning_ticket,
         "duration_ms": duration_ms,
         "success_count": success_count,
         "stored_success_count": stored_success_count,
