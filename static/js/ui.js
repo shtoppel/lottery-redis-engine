@@ -245,8 +245,9 @@ export function renderRaceStats(data) {
   }
 
   if (dom.raceDuplicateBug()) {
-    dom.raceDuplicateBug().textContent = data?.duplicate_bug ? "YES" : "NO";
-    dom.raceDuplicateBug().style.color = data?.duplicate_bug
+    const isBroken = (data?.consistency || "").toUpperCase() === "BROKEN" || !!data?.duplicate_bug;
+    dom.raceDuplicateBug().textContent = isBroken ? "YES" : "NO";
+    dom.raceDuplicateBug().style.color = isBroken
       ? "#ff4444"
       : "var(--neon-green)";
   }
@@ -281,6 +282,7 @@ export function renderRaceStats(data) {
       `${timelineLines.join("\n") || "No events"}`;
   }
 }
+
 
 
 function sleep(ms) {

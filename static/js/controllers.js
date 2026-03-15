@@ -334,10 +334,12 @@ export async function onRaceRun() {
     `mode: ${data.mode}`,
     `concurrency: ${data.concurrency}`,
     `winning ticket: ${state.winningTicket || "-"}`,
-    `success count: ${data.stored_success_count}`,
-    `winner request: ${winnerEvent?.user || data?.final_claimed_by || "-"}`,
+    `expected winners: ${data.expected_winners ?? 1}`,
+    `actual winners: ${data.actual_winners ?? data.stored_success_count}`,
+    `consistency: ${data.consistency || (data.duplicate_bug ? "BROKEN" : "OK")}`,
+    `first successful request: ${data.first_successful_request || data.final_claimed_by || "-"}`,
     `winner latency: ${winnerEvent ? `${winnerEvent.latency_ms} ms` : "-"}`,
-    `duplicate bug: ${data.duplicate_bug ? "YES" : "NO"}`,
+    `race window: ${Number(data.race_window_ms ?? 0).toFixed(2)} ms`,
     data.duplicate_bug
       ? "verdict: race condition reproduced"
       : "verdict: atomic protection works"
