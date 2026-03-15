@@ -325,6 +325,9 @@ export async function onRaceRun() {
 
   renderRaceStats(data);
 
+  const timeline = Array.isArray(data?.race_timeline) ? data.race_timeline : [];
+  const winnerEvent = timeline.find((e) => e?.status === "SUCCESS") || null;
+
   await renderSummaryTerminal([
     "booting analyzer...",
     "collecting race metrics...",
@@ -332,6 +335,8 @@ export async function onRaceRun() {
     `concurrency: ${data.concurrency}`,
     `winning ticket: ${state.winningTicket || "-"}`,
     `success count: ${data.stored_success_count}`,
+    `winner request: ${winnerEvent?.user || data?.final_claimed_by || "-"}`,
+    `winner latency: ${winnerEvent ? `${winnerEvent.latency_ms} ms` : "-"}`,
     `duplicate bug: ${data.duplicate_bug ? "YES" : "NO"}`,
     data.duplicate_bug
       ? "verdict: race condition reproduced"
