@@ -1,4 +1,5 @@
 import asyncio
+import random
 from typing import Any
 
 
@@ -27,15 +28,27 @@ class RaceService:
     @staticmethod
     async def validate_claim_ticket(redis, ticket_id: str) -> tuple[bool, dict[str, Any] | None]:
         if not ticket_id:
-            return False, {"status": "invalid_ticket", "claimed": False, "detail": "ticket_id is required"}
+            return False, {
+                "status": "invalid_ticket",
+                "claimed": False,
+                "detail": "ticket_id is required",
+            }
 
         exists = await redis.sismember("lottery:tickets", ticket_id)
         if not exists:
-            return False, {"status": "invalid_ticket", "claimed": False, "ticket_id": ticket_id}
+            return False, {
+                "status": "invalid_ticket",
+                "claimed": False,
+                "ticket_id": ticket_id,
+            }
 
         winning = await redis.get("lottery:winning_number")
         if ticket_id != winning:
-            return False, {"status": "no_match", "claimed": False, "ticket_id": ticket_id}
+            return False, {
+                "status": "no_match",
+                "claimed": False,
+                "ticket_id": ticket_id,
+            }
 
         return True, None
 
@@ -43,6 +56,8 @@ class RaceService:
     async def claim_unsafe(redis, user_id: str, ticket_id: str, delay_ms: int = 10) -> dict[str, Any]:
         """
         Intentionally unsafe check-then-set flow.
+        Designed to demonstrate race conditions in a more realistic way:
+        not every concurrent request should necessarily win.
         """
         ready, detail = await RaceService.ensure_ready(redis)
         if not ready:
@@ -54,7 +69,6 @@ class RaceService:
             return fail_payload
 
         claimed_by = await redis.get(RaceService.CLAIMED_KEY)
-
         if claimed_by:
             return {
                 "status": "already_claimed",
@@ -64,8 +78,20 @@ class RaceService:
                 "ticket_id": ticket_id,
             }
 
-        # widen race window on purpose
-        await asyncio.sleep(delay_ms / 1000)
+        # Widen race window on purpose, but add jitter so results look realistic.
+        jitter_ms = random.randint(0, max(delay_ms, 1))
+        await asyncio.sleep((delay_ms + jitter_ms) / 1000)
+
+        # Second check reduces "everyone wins" effect while still remaining unsafe.
+        claimed_by = await redis.get(RaceService.CLAIMED_KEY)
+        if claimed_by:
+            return {
+                "status": "already_claimed",
+                "claimed": False,
+                "claimed_by": claimed_by,
+                "user_id": user_id,
+                "ticket_id": ticket_id,
+            }
 
         await redis.set(RaceService.CLAIMED_KEY, user_id)
         await redis.incr(RaceService.SUCCESS_COUNT_KEY)
@@ -81,7 +107,7 @@ class RaceService:
     @staticmethod
     async def claim_safe(redis, user_id: str, ticket_id: str) -> dict[str, Any]:
         """
-        Safe atomic claim via SETNX.
+        Safe atomic claim via Redis SET with NX flag.
         """
         ready, detail = await RaceService.ensure_ready(redis)
         if not ready:
@@ -92,7 +118,8 @@ class RaceService:
             fail_payload["user_id"] = user_id
             return fail_payload
 
-        ok = await redis.setnx(RaceService.CLAIMED_KEY, user_id)
+        # Atomic: set only if key does not exist
+        ok = await redis.set(RaceService.CLAIMED_KEY, user_id, nx=True)
 
         if ok:
             await redis.incr(RaceService.SUCCESS_COUNT_KEY)

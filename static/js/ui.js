@@ -237,56 +237,8 @@ export function renderLocustStats(data) {
 // Race stats rendering
 // ----------------------
 
-export function renderRaceStats(data) {
-  if (dom.raceSuccessCount()) {
-    dom.raceSuccessCount().textContent = String(
-      data?.stored_success_count ?? data?.success_count ?? 0
-    );
-  }
-
-  if (dom.raceDuplicateBug()) {
-    const isBroken = (data?.consistency || "").toUpperCase() === "BROKEN" || !!data?.duplicate_bug;
-    dom.raceDuplicateBug().textContent = isBroken ? "YES" : "NO";
-    dom.raceDuplicateBug().style.color = isBroken
-      ? "#ff4444"
-      : "var(--neon-green)";
-  }
-
-  if (dom.raceDuration()) {
-    dom.raceDuration().textContent = `${data?.duration_ms ?? 0} ms`;
-  }
-
-  if (dom.raceResult()) {
-    const timeline = Array.isArray(data?.race_timeline) ? data.race_timeline : [];
-    const timelineLines = timeline.slice(0, 12).map((e) => {
-      const ms = Number(e?.latency_ms ?? 0).toFixed(2);
-      return `${ms} ms  ${e?.user ?? "-"}  ${String(e?.status ?? "unknown")}`;
-    });
-
-    dom.raceResult().textContent =
-      `Mode: ${data?.mode ?? "-"}
-` +
-      `Concurrency: ${data?.concurrency ?? "-"}
-` +
-      `Final claimed by: ${data?.final_claimed_by ?? "-"}
-` +
-      `Success count: ${data?.stored_success_count ?? data?.success_count ?? 0}
-` +
-      `Duplicate bug: ${data?.duplicate_bug ? "YES" : "NO"}
-` +
-      `Winners: ${(data?.winners || []).join(", ") || "-"}
-
-` +
-      `Race timeline:
-` +
-      `${timelineLines.join("\n") || "No events"}`;
-  }
-}
-
-
-
 function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function renderSummaryTerminal(lines, speed = 220) {
@@ -320,7 +272,10 @@ export function appendSummaryLine(line) {
   el.scrollTop = el.scrollHeight;
 }
 
-//Ticket Animation
+// ----------------------
+// Ticket / winner animation
+// ----------------------
+
 function randomPair() {
   return String(Math.floor(Math.random() * 100)).padStart(2, "0");
 }
@@ -332,7 +287,7 @@ export function renderRevealFrame(pairs, revealed) {
   const html = pairs
     .map((p, i) => {
       if (i < revealed) {
-        return `<span style="color:var(--neon-green); text-shadow:0 0 10px var(--neon-green)">${p}</span>`;
+        return `<span style="color:var(--neon-green); text-shadow:0 0 10px var(--neon-green)">${escapeHtml(p)}</span>`;
       }
 
       return `<span style="color:#ff4444">${randomPair()}</span>`;
@@ -351,4 +306,93 @@ export function showHiddenWinner(slotCount = 8) {
   }).join(" ");
 
   el.style.textShadow = "none";
+}
+
+export function renderRaceStats(data) {
+  const successCountEl = dom.raceSuccessCount?.();
+  const duplicateBugEl = dom.raceDuplicateBug?.();
+  const durationEl = dom.raceDuration?.();
+  const raceResultEl = dom.raceResult?.();
+
+  if (successCountEl) {
+    successCountEl.textContent = String(
+      data?.stored_success_count ?? data?.success_count ?? 0
+    );
+  }
+
+  if (duplicateBugEl) {
+    const isBroken =
+      (data?.consistency || "").toUpperCase() === "BROKEN" ||
+      !!data?.duplicate_bug;
+
+    duplicateBugEl.textContent = isBroken ? "YES" : "NO";
+    duplicateBugEl.style.color = isBroken ? "#ff4444" : "var(--neon-green)";
+  }
+
+  if (durationEl) {
+    const duration = Number(data?.duration_ms ?? 0).toFixed(2);
+    durationEl.textContent = `${duration} ms`;
+  }
+
+  if (raceResultEl) {
+    const timeline = Array.isArray(data?.race_timeline) ? data.race_timeline : [];
+    const winners = Array.isArray(data?.winners) ? data.winners : [];
+
+    const winnersShort =
+      winners.length === 0
+        ? "-"
+        : winners.length <= 8
+          ? winners.join(", ")
+          : `${winners.slice(0, 8).join(", ")} ... (+${winners.length - 8})`;
+
+    const timelineLines = timeline.slice(0, 12).map((e) => {
+      const hasDelta =
+        e?.delta_from_first_ms !== null &&
+        e?.delta_from_first_ms !== undefined &&
+        !Number.isNaN(Number(e?.delta_from_first_ms));
+
+      const timeLabel = hasDelta
+        ? `+${Number(e.delta_from_first_ms).toFixed(2)} ms`
+        : `${Number(e?.latency_ms ?? 0).toFixed(2)} ms`;
+
+      const user = String(e?.user ?? "-");
+      const statusRaw = String(e?.status ?? "unknown");
+      const status =
+        statusRaw === "claim_success"
+          ? "CLAIM_SUCCESS"
+          : statusRaw.toUpperCase();
+
+      return `${timeLabel}  ${user}  ${status}`;
+    });
+
+    const winnerLatency =
+      data?.winner_latency_ms !== null &&
+      data?.winner_latency_ms !== undefined
+        ? `${Number(data.winner_latency_ms).toFixed(2)} ms`
+        : "-";
+
+    const raceWindow =
+      data?.race_window_ms !== null &&
+      data?.race_window_ms !== undefined
+        ? `${Number(data.race_window_ms).toFixed(2)} ms`
+        : "-";
+
+    const winningTicket = data?.winning_ticket ?? "-";
+    const firstSuccessfulRequest = data?.first_successful_request ?? "-";
+    const duplicateBug = data?.duplicate_bug ? "YES" : "NO";
+
+    raceResultEl.textContent =
+      `Mode: ${data?.mode ?? "-"}\n` +
+      `Concurrency: ${data?.concurrency ?? "-"}\n` +
+      `Winning ticket: ${winningTicket}\n` +
+      `Final claimed by: ${data?.final_claimed_by ?? "-"}\n` +
+      `First successful request: ${firstSuccessfulRequest}\n` +
+      `Winner latency: ${winnerLatency}\n` +
+      `Race window: ${raceWindow}\n` +
+      `Success count: ${data?.stored_success_count ?? data?.success_count ?? 0}\n` +
+      `Duplicate bug: ${duplicateBug}\n` +
+      `Winners: ${winnersShort}\n\n` +
+      `Race timeline (${timeline.length ? Math.min(timeline.length, 12) : 0} shown):\n` +
+      `${timelineLines.join("\n") || "No events"}`;
+  }
 }

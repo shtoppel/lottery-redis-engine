@@ -1,5 +1,6 @@
 import asyncio
 import os
+import random
 import time
 from datetime import datetime
 import json
@@ -503,6 +504,10 @@ async def race_run(
     concurrency: int = Query(200),
     delay_ms: int = Query(10),
 ):
+    """
+    Concurrent in-process race demo.
+    Safer and more deterministic for portfolio/demo than self-HTTP calls.
+    """
     r = request.app.state.redis
 
     ready, detail = await RaceService.ensure_ready(r)
@@ -527,49 +532,131 @@ async def race_run(
             content={"status": "error", "detail": "mode must be 'unsafe' or 'safe'"},
         )
 
-    concurrency = max(1, min(concurrency, 300))
+    concurrency = max(1, min(concurrency, 1000))
     delay_ms = max(0, min(delay_ms, 100))
 
     started = time.perf_counter()
+    start_gate = asyncio.Event()
 
     async def worker(i: int):
         user_id = f"user_{i}"
-        if mode == "unsafe":
-            return await RaceService.claim_unsafe(
-                r,
-                user_id=user_id,
-                ticket_id=winning_ticket,
-                delay_ms=delay_ms,
-            )
-        return await RaceService.claim_safe(
-            r,
-            user_id=user_id,
-            ticket_id=winning_ticket,
-        )
 
-    results = await asyncio.gather(*(worker(i) for i in range(concurrency)), return_exceptions=True)
+        await start_gate.wait()
+        await asyncio.sleep(random.uniform(0, 0.003))
+        req_started = time.perf_counter()
+
+        try:
+            if mode == "unsafe":
+                payload = await RaceService.claim_unsafe(
+                    r,
+                    user_id=user_id,
+                    ticket_id=winning_ticket,
+                    delay_ms=delay_ms,
+                )
+            else:
+                payload = await RaceService.claim_safe(
+                    r,
+                    user_id=user_id,
+                    ticket_id=winning_ticket,
+                )
+
+            latency_ms = round((time.perf_counter() - req_started) * 1000, 2)
+
+            event = {
+                "user": user_id,
+                "latency_ms": latency_ms,
+                "status": payload.get("status", "unknown"),
+                "claimed": bool(payload.get("claimed") is True),
+            }
+
+            return payload, event
+
+        except Exception as e:
+            latency_ms = round((time.perf_counter() - req_started) * 1000, 2)
+            event = {
+                "user": user_id,
+                "latency_ms": latency_ms,
+                "status": f"error: {type(e).__name__}",
+                "claimed": False,
+            }
+            return None, event
+
+    user_indexes = list(range(concurrency))
+    random.shuffle(user_indexes)
+
+    tasks = [asyncio.create_task(worker(i)) for i in user_indexes]
+
+    # release all workers almost at the same moment
+    start_gate.set()
+
+    responses = await asyncio.gather(*tasks)
 
     parsed_results = []
+    race_events = []
     network_errors = 0
 
-    for item in results:
-        if isinstance(item, Exception):
+    for payload, event in responses:
+        race_events.append(event)
+        if payload is None:
             network_errors += 1
             continue
-        parsed_results.append(item)
+        parsed_results.append(payload)
 
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
 
     success_count = sum(1 for item in parsed_results if item.get("claimed") is True)
-    winners = [item.get("user_id") for item in parsed_results if item.get("claimed") is True]
+    winners = [item["user_id"] for item in parsed_results if item.get("claimed") is True]
 
     stored_success_count = int(await r.get(RaceService.SUCCESS_COUNT_KEY) or 0)
     final_claimed_by = await r.get(RaceService.CLAIMED_KEY)
 
     duplicate_bug = stored_success_count > 1
+
+    # Raw ordering by latency
+    race_events.sort(key=lambda x: x.get("latency_ms", 0))
+
+    success_events = [e for e in race_events if e.get("claimed") is True]
+    fail_events = [e for e in race_events if e.get("claimed") is not True]
+
     expected_winners = 1
     actual_winners = stored_success_count
     consistency = "OK" if actual_winners == expected_winners else "BROKEN"
+
+    first_success_request = None
+    winner_latency_ms = None
+    race_window_ms = 0.0
+
+    if success_events:
+        first_success = min(success_events, key=lambda x: x.get("latency_ms", 0))
+        first_success_request = first_success.get("user")
+        winner_latency_ms = first_success.get("latency_ms", 0)
+
+        min_success = min(e.get("latency_ms", 0) for e in success_events)
+        max_success = max(e.get("latency_ms", 0) for e in success_events)
+        race_window_ms = round(max_success - min_success, 2)
+
+    # Better demo timeline:
+    # 1) show successful claims first
+    # 2) then earliest failed claims
+    display_timeline = success_events + fail_events
+    display_timeline = display_timeline[:15]
+
+    # Add relative timing from first success for better readability
+    if winner_latency_ms is not None:
+        for event in display_timeline:
+            event["delta_from_first_ms"] = round(
+                event.get("latency_ms", 0) - winner_latency_ms,
+                2,
+            )
+    else:
+        for event in display_timeline:
+            event["delta_from_first_ms"] = None
+
+    verdict = (
+        "atomic protection works"
+        if consistency == "OK"
+        else "race condition reproduced"
+    )
 
     return {
         "status": "ok",
@@ -584,9 +671,14 @@ async def race_run(
         "expected_winners": expected_winners,
         "actual_winners": actual_winners,
         "consistency": consistency,
+        "first_successful_request": first_success_request,
+        "winner_latency_ms": winner_latency_ms,
+        "race_window_ms": race_window_ms,
         "final_claimed_by": final_claimed_by,
         "winners": winners,
         "network_errors": network_errors,
+        "verdict": verdict,
+        "race_timeline": display_timeline,
     }
 # ------------------------
 # Build Demo Summary
