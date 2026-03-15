@@ -550,10 +550,7 @@ async def race_run(
     network_errors = 0
     start_event = asyncio.Event()
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        for start_idx in range(1, concurrency + 1, batch_size):
-            end_idx = min(start_idx + batch_size, concurrency + 1)
-            tasks = []
+    tasks = []
 
             for i in range(start_idx, end_idx):
                 user_id = f"user_{i}"
