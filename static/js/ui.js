@@ -256,13 +256,29 @@ export function renderRaceStats(data) {
   }
 
   if (dom.raceResult()) {
+    const timeline = Array.isArray(data?.race_timeline) ? data.race_timeline : [];
+    const timelineLines = timeline.slice(0, 12).map((e) => {
+      const ms = Number(e?.latency_ms ?? 0).toFixed(2);
+      return `${ms} ms  ${e?.user ?? "-"}  ${String(e?.status ?? "unknown")}`;
+    });
+
     dom.raceResult().textContent =
-      `Mode: ${data?.mode ?? "-"}\n` +
-      `Concurrency: ${data?.concurrency ?? "-"}\n` +
-      `Final claimed by: ${data?.final_claimed_by ?? "-"}\n` +
-      `Success count: ${data?.stored_success_count ?? data?.success_count ?? 0}\n` +
-      `Duplicate bug: ${data?.duplicate_bug ? "YES" : "NO"}\n` +
-      `Winners: ${(data?.winners || []).join(", ") || "-"}`;
+      `Mode: ${data?.mode ?? "-"}
+` +
+      `Concurrency: ${data?.concurrency ?? "-"}
+` +
+      `Final claimed by: ${data?.final_claimed_by ?? "-"}
+` +
+      `Success count: ${data?.stored_success_count ?? data?.success_count ?? 0}
+` +
+      `Duplicate bug: ${data?.duplicate_bug ? "YES" : "NO"}
+` +
+      `Winners: ${(data?.winners || []).join(", ") || "-"}
+
+` +
+      `Race timeline:
+` +
+      `${timelineLines.join("\n") || "No events"}`;
   }
 }
 
