@@ -503,12 +503,6 @@ async def race_run(
     concurrency: int = Query(200),
     delay_ms: int = Query(10),
 ):
-    """
-    Run real concurrent HTTP requests against race claim endpoints.
-    Requires:
-    - generated ticket pool
-    - winner selected via draw
-    """
     r = request.app.state.redis
 
     ready, detail = await RaceService.ensure_ready(r)
@@ -533,113 +527,49 @@ async def race_run(
             content={"status": "error", "detail": "mode must be 'unsafe' or 'safe'"},
         )
 
-    # keep race realistic but bounded
-    concurrency = max(1, min(concurrency, 1000))
+    concurrency = max(1, min(concurrency, 300))
     delay_ms = max(0, min(delay_ms, 100))
-
-    endpoint = "/race/claim-unsafe" if mode == "unsafe" else "/race/claim-safe"
-
-    # Use current server base URL by default (works locally).
-    # Can be overridden in Docker/CI with BACKEND_INTERNAL_URL.
-    base_url = os.getenv("BACKEND_INTERNAL_URL", str(request.base_url).rstrip("/"))
 
     started = time.perf_counter()
 
+    async def worker(i: int):
+        user_id = f"user_{i}"
+        if mode == "unsafe":
+            return await RaceService.claim_unsafe(
+                r,
+                user_id=user_id,
+                ticket_id=winning_ticket,
+                delay_ms=delay_ms,
+            )
+        return await RaceService.claim_safe(
+            r,
+            user_id=user_id,
+            ticket_id=winning_ticket,
+        )
+
+    results = await asyncio.gather(*(worker(i) for i in range(concurrency)), return_exceptions=True)
+
     parsed_results = []
-    race_events = []
     network_errors = 0
-    start_event = asyncio.Event()
 
-    tasks = []
-
-            for i in range(start_idx, end_idx):
-                user_id = f"user_{i}"
-                params = {"user_id": user_id, "ticket_id": winning_ticket}
-
-                if mode == "unsafe":
-                    params["delay_ms"] = delay_ms
-
-                request_start = time.perf_counter()
-
-                async def fire_request(uid=user_id, request_params=params, req_started=request_start):
-                    try:
-                        resp = await client.post(f"{base_url}{endpoint}", params=request_params)
-                        payload = resp.json()
-                        latency_ms = round((time.perf_counter() - req_started) * 1000, 2)
-
-                        status = payload.get("status", "unknown")
-                        if payload.get("claimed") is True:
-                            status = "SUCCESS"
-
-                        event = {
-                            "user": uid,
-                            "latency_ms": latency_ms,
-                            "status": status,
-                            "claimed": bool(payload.get("claimed") is True),
-                        }
-                        return payload, event
-                    except Exception:
-                        latency_ms = round((time.perf_counter() - req_started) * 1000, 2)
-                        event = {
-                            "user": uid,
-                            "latency_ms": latency_ms,
-                            "status": "network_error",
-                            "claimed": False,
-                        }
-                        return None, event
-
-                tasks.append(fire_request())
-
-            responses = await asyncio.gather(*tasks)
-
-            for payload, event in responses:
-                race_events.append(event)
-                if payload is None:
-                    network_errors += 1
-                    continue
-                parsed_results.append(payload)
+    for item in results:
+        if isinstance(item, Exception):
+            network_errors += 1
+            continue
+        parsed_results.append(item)
 
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
 
     success_count = sum(1 for item in parsed_results if item.get("claimed") is True)
-    winners = [item["user_id"] for item in parsed_results if item.get("claimed") is True]
+    winners = [item.get("user_id") for item in parsed_results if item.get("claimed") is True]
 
     stored_success_count = int(await r.get(RaceService.SUCCESS_COUNT_KEY) or 0)
     final_claimed_by = await r.get(RaceService.CLAIMED_KEY)
 
     duplicate_bug = stored_success_count > 1
-
-    race_events.sort(key=lambda x: x.get("latency_ms", 0))
-
-    success_events = [e for e in race_events if e.get("claimed") is True]
     expected_winners = 1
     actual_winners = stored_success_count
     consistency = "OK" if actual_winners == expected_winners else "BROKEN"
-
-    first_success_request = None
-    race_window_ms = 0.0
-    if success_events:
-        first_success = min(success_events, key=lambda x: x.get("latency_ms", 0))
-        first_success_request = first_success.get("user")
-        min_success = min(e.get("latency_ms", 0) for e in success_events)
-        max_success = max(e.get("latency_ms", 0) for e in success_events)
-        race_window_ms = round(max_success - min_success, 2)
-
-    race_events.sort(key=lambda x: x.get("latency_ms", 0))
-
-    success_events = [e for e in race_events if e.get("claimed") is True]
-    expected_winners = 1
-    actual_winners = stored_success_count
-    consistency = "OK" if actual_winners == expected_winners else "BROKEN"
-
-    first_success_request = None
-    race_window_ms = 0.0
-    if success_events:
-        first_success = min(success_events, key=lambda x: x.get("latency_ms", 0))
-        first_success_request = first_success.get("user")
-        min_success = min(e.get("latency_ms", 0) for e in success_events)
-        max_success = max(e.get("latency_ms", 0) for e in success_events)
-        race_window_ms = round(max_success - min_success, 2)
 
     return {
         "status": "ok",
@@ -654,14 +584,10 @@ async def race_run(
         "expected_winners": expected_winners,
         "actual_winners": actual_winners,
         "consistency": consistency,
-        "first_successful_request": first_success_request,
-        "race_window_ms": race_window_ms,
         "final_claimed_by": final_claimed_by,
         "winners": winners,
         "network_errors": network_errors,
-        "race_timeline": race_events,
     }
-
 # ------------------------
 # Build Demo Summary
 # ------------------------
