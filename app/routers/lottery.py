@@ -600,7 +600,7 @@ async def race_run(
     stored_success_count = int(await r.get(RaceService.SUCCESS_COUNT_KEY) or 0)
     final_claimed_by = await r.get(RaceService.CLAIMED_KEY)
 
-    duplicate_bug = stored_success_count > 1
+      duplicate_bug = stored_success_count > 1
 
     race_events.sort(key=lambda x: x.get("latency_ms", 0))
 
