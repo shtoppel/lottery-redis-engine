@@ -34,8 +34,7 @@ export const dom = {
   btnGenLua: () => $("btn-gen-lua"),
   btnDraw: () => $("btn-draw"),
 
-  btnPull: () => $("btn-pull"),
-  btnVerify: () => $("btn-verify"),
+  btnPullVerify: () => $("btn-pull-verify"),
   btnMulti: () => $("btn-multi"),
 
   // locust manual control
