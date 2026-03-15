@@ -245,8 +245,9 @@ export function renderRaceStats(data) {
   }
 
   if (dom.raceDuplicateBug()) {
-    dom.raceDuplicateBug().textContent = data?.duplicate_bug ? "YES" : "NO";
-    dom.raceDuplicateBug().style.color = data?.duplicate_bug
+    const isBroken = (data?.consistency || "").toUpperCase() === "BROKEN" || !!data?.duplicate_bug;
+    dom.raceDuplicateBug().textContent = isBroken ? "YES" : "NO";
+    dom.raceDuplicateBug().style.color = isBroken
       ? "#ff4444"
       : "var(--neon-green)";
   }
@@ -256,15 +257,70 @@ export function renderRaceStats(data) {
   }
 
   if (dom.raceResult()) {
+    const timeline = Array.isArray(data?.race_timeline) ? data.race_timeline : [];
+
+    const successEvents = timeline
+      .filter((e) => e?.claimed === true || e?.status === "SUCCESS")
+      .sort((a, b) => Number(a?.latency_ms ?? 0) - Number(b?.latency_ms ?? 0));
+
+    const rejectedEvents = timeline
+      .filter((e) => !(e?.claimed === true || e?.status === "SUCCESS"))
+      .sort((a, b) => Number(a?.latency_ms ?? 0) - Number(b?.latency_ms ?? 0));
+
+    const successLines = successEvents.length
+      ? successEvents.map((e, idx) => {
+          const ms = Number(e?.latency_ms ?? 0).toFixed(2);
+          return `${ms} ms  ${e?.user ?? "-"}  SUCCESS${idx === 0 ? "   first" : ""}`;
+        })
+      : ["No success events"];
+
+    const rejectedPreview = rejectedEvents.slice(0, 5).map((e) => {
+      const ms = Number(e?.latency_ms ?? 0).toFixed(2);
+      return `${ms} ms  ${e?.user ?? "-"}  ${String(e?.status ?? "rejected")}`;
+    });
+    const rejectedMore = rejectedEvents.length > 5 ? `... and ${rejectedEvents.length - 5} more` : null;
+
+    const expectedWinners = Number(data?.expected_winners ?? 1);
+    const actualWinners = Number(data?.actual_winners ?? data?.stored_success_count ?? 0);
+    const consistency = String(data?.consistency || (actualWinners === expectedWinners ? "OK" : "BROKEN"));
+    const firstSuccessful = data?.first_successful_request || successEvents?.[0]?.user || data?.final_claimed_by || "-";
+    const raceWindow = Number(data?.race_window_ms ?? 0).toFixed(2);
+
     dom.raceResult().textContent =
-      `Mode: ${data?.mode ?? "-"}\n` +
-      `Concurrency: ${data?.concurrency ?? "-"}\n` +
-      `Final claimed by: ${data?.final_claimed_by ?? "-"}\n` +
-      `Success count: ${data?.stored_success_count ?? data?.success_count ?? 0}\n` +
-      `Duplicate bug: ${data?.duplicate_bug ? "YES" : "NO"}\n` +
-      `Winners: ${(data?.winners || []).join(", ") || "-"}`;
+      `RACE RESULT
+` +
+      `--------------------------------------------------
+` +
+      `Mode: ${data?.mode ?? "-"}
+` +
+      `Concurrency: ${data?.concurrency ?? "-"}
+` +
+      `Expected winners: ${expectedWinners}
+` +
+      `Actual winners: ${actualWinners}
+` +
+      `Consistency: ${consistency}
+` +
+      `First successful request: ${firstSuccessful}
+` +
+      `Race window: ${raceWindow} ms
+
+` +
+      `SUCCESS CLUSTER
+` +
+      `${successLines.join("
+")}
+
+` +
+      `REJECTED REQUESTS
+` +
+      `${rejectedPreview.join("
+") || "No rejected requests"}` +
+      `${rejectedMore ? `
+${rejectedMore}` : ""}`;
   }
 }
+
 
 
 function sleep(ms) {
