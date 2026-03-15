@@ -548,7 +548,7 @@ async def race_run(
     parsed_results = []
     race_events = []
     network_errors = 0
-    batch_size = 100
+    start_event = asyncio.Event()
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         for start_idx in range(1, concurrency + 1, batch_size):
