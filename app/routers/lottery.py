@@ -551,59 +551,56 @@ async def race_run(
     start_event = asyncio.Event()
 
     async with httpx.AsyncClient(timeout=10.0) as client:
-        tasks = []
+        for start_idx in range(1, concurrency + 1, batch_size):
+            end_idx = min(start_idx + batch_size, concurrency + 1)
+            tasks = []
 
-        for i in range(1, concurrency + 1):
-            user_id = f"user_{i}"
-            params = {"user_id": user_id, "ticket_id": winning_ticket}
+            for i in range(start_idx, end_idx):
+                user_id = f"user_{i}"
+                params = {"user_id": user_id, "ticket_id": winning_ticket}
 
-            if mode == "unsafe":
-                params["delay_ms"] = delay_ms
+                if mode == "unsafe":
+                    params["delay_ms"] = delay_ms
 
-            async def fire_request(uid=user_id, request_params=params):
-                await start_event.wait()
                 request_start = time.perf_counter()
 
-                try:
-                    resp = await client.post(f"{base_url}{endpoint}", params=request_params)
-                    payload = resp.json()
-                    latency_ms = round((time.perf_counter() - request_start) * 1000, 2)
+                async def fire_request(uid=user_id, request_params=params, req_started=request_start):
+                    try:
+                        resp = await client.post(f"{base_url}{endpoint}", params=request_params)
+                        payload = resp.json()
+                        latency_ms = round((time.perf_counter() - req_started) * 1000, 2)
 
-                    status = payload.get("status", "unknown")
-                    if payload.get("claimed") is True:
-                        status = "SUCCESS"
+                        status = payload.get("status", "unknown")
+                        if payload.get("claimed") is True:
+                            status = "SUCCESS"
 
-                    event = {
-                        "user": uid,
-                        "ticket_id": request_params.get("ticket_id"),
-                        "latency_ms": latency_ms,
-                        "status": status,
-                        "claimed": bool(payload.get("claimed") is True),
-                    }
-                    return payload, event
-                except Exception:
-                    latency_ms = round((time.perf_counter() - request_start) * 1000, 2)
-                    event = {
-                        "user": uid,
-                        "ticket_id": request_params.get("ticket_id"),
-                        "latency_ms": latency_ms,
-                        "status": "network_error",
-                        "claimed": False,
-                    }
-                    return None, event
+                        event = {
+                            "user": uid,
+                            "latency_ms": latency_ms,
+                            "status": status,
+                            "claimed": bool(payload.get("claimed") is True),
+                        }
+                        return payload, event
+                    except Exception:
+                        latency_ms = round((time.perf_counter() - req_started) * 1000, 2)
+                        event = {
+                            "user": uid,
+                            "latency_ms": latency_ms,
+                            "status": "network_error",
+                            "claimed": False,
+                        }
+                        return None, event
 
-            tasks.append(asyncio.create_task(fire_request()))
+                tasks.append(fire_request())
 
-        # Barrier GO: all prepared tasks start request phase simultaneously.
-        start_event.set()
-        responses = await asyncio.gather(*tasks)
+            responses = await asyncio.gather(*tasks)
 
-        for payload, event in responses:
-            race_events.append(event)
-            if payload is None:
-                network_errors += 1
-                continue
-            parsed_results.append(payload)
+            for payload, event in responses:
+                race_events.append(event)
+                if payload is None:
+                    network_errors += 1
+                    continue
+                parsed_results.append(payload)
 
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
 
@@ -614,6 +611,22 @@ async def race_run(
     final_claimed_by = await r.get(RaceService.CLAIMED_KEY)
 
     duplicate_bug = stored_success_count > 1
+
+    race_events.sort(key=lambda x: x.get("latency_ms", 0))
+
+    success_events = [e for e in race_events if e.get("claimed") is True]
+    expected_winners = 1
+    actual_winners = stored_success_count
+    consistency = "OK" if actual_winners == expected_winners else "BROKEN"
+
+    first_success_request = None
+    race_window_ms = 0.0
+    if success_events:
+        first_success = min(success_events, key=lambda x: x.get("latency_ms", 0))
+        first_success_request = first_success.get("user")
+        min_success = min(e.get("latency_ms", 0) for e in success_events)
+        max_success = max(e.get("latency_ms", 0) for e in success_events)
+        race_window_ms = round(max_success - min_success, 2)
 
     race_events.sort(key=lambda x: x.get("latency_ms", 0))
 
