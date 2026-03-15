@@ -1,5 +1,8 @@
 export const state = {
   lastTotal: 0,
+  latestLocustStats: null,
+  liveScenarioStatsSnapshot: null,
+  isScenarioRunning: false,
   targetCount: 0,
   startTime: null,
   currentTicket: "", // 16-char string

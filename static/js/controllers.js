@@ -39,6 +39,9 @@ function resetPersonalScenarioState() {
   state.myCheckLatencyMs = null;
   state.myCheckExists = null;
   state.myCheckIsWinner = null;
+
+  state.latestLocustStats = null;
+  state.liveScenarioStatsSnapshot = null;
 }
 
 function buildScenarioVerdict(stats) {
@@ -54,22 +57,22 @@ function buildScenarioVerdict(stats) {
 }
 
 async function showPersonalScenarioSummary() {
-  const stats = state.latestLocustStats || null;
+  const stats = state.liveScenarioStatsSnapshot || null;
 
   const peakRps =
-    stats?.rps !== undefined && stats?.rps !== null
-      ? Number(stats.rps).toFixed(1)
-      : "-";
+  stats?.rps !== undefined && stats?.rps !== null
+    ? Number(stats.rps).toFixed(1)
+    : "-";
 
-  const worstP95 =
-    stats?.p95 !== undefined && stats?.p95 !== null
-      ? Math.round(Number(stats.p95))
-      : "-";
+const worstP95 =
+  stats?.p95 !== undefined && stats?.p95 !== null
+    ? Math.round(Number(stats.p95))
+    : "-";
 
-  const failRate =
-    stats?.fail_ratio !== undefined && stats?.fail_ratio !== null
-      ? `${(Number(stats.fail_ratio) * 100).toFixed(1)}%`
-      : "-";
+const failRate =
+  stats?.fail_ratio !== undefined && stats?.fail_ratio !== null
+    ? `${(Number(stats.fail_ratio) * 100).toFixed(1)}%`
+    : "-";
 
   const myResult =
     state.myCheckIsWinner === true
@@ -98,14 +101,44 @@ let presetAbort = false;
 
 async function stopLoadNow(message = "Scenario stopped.") {
   presetAbort = true;
+  await captureLiveScenarioSnapshot(); // снять live stats до stop
   await api.locustStop();
   stopWinnerReveal(true);
   state.isScenarioRunning = false;
-  uiLog(message, "info");
-  appendSummaryLine("live traffic stopped");
+  uiLog("Scenario completed: Burst finished.", "success");
+  appendSummaryLine("scenario finished");
   appendSummaryLine("full winning ticket revealed");
+
+await showPersonalScenarioSummary();
+
   await showPersonalScenarioSummary();
 }
+
+function hasMeaningfulLocustStats(stats) {
+  if (!stats) return false;
+
+  const rps = Number(stats?.rps ?? 0);
+  const p95 = Number(stats?.p95 ?? 0);
+  const failRatio = Number(stats?.fail_ratio ?? 0);
+
+  const hasFullStats =
+    Array.isArray(stats?.full_stats) && stats.full_stats.some((x) => Number(x?.num_requests ?? 0) > 0);
+
+  return rps > 0 || p95 > 0 || failRatio > 0 || hasFullStats;
+}
+
+async function captureLiveScenarioSnapshot() {
+  const { res, data } = await api.locustStats();
+
+  if (res?.ok && hasMeaningfulLocustStats(data)) {
+    state.latestLocustStats = data;
+    state.liveScenarioStatsSnapshot = data;
+    return data;
+  }
+
+  return null;
+}
+
 // --------------------
 // UI Scenario buttons (index.html)
 // --------------------
@@ -142,6 +175,7 @@ async function runBurstAfterDraw({ users, spawn, holdMs, idleMs }) {
 
   uiLog(`Scenario started: Burst after draw (${users}).`, "info");
 
+  await captureLiveScenarioSnapshot();
   await api.locustStop();
   await sleep(800);
 
@@ -588,6 +622,11 @@ export async function tickLocustStats() {
   if (!res?.ok) return;
 
   state.latestLocustStats = data;
+
+  if (state.isScenarioRunning && hasMeaningfulLocustStats(data)) {
+    state.liveScenarioStatsSnapshot = data;
+  }
+
   renderLocustStats(data);
 }
 
@@ -617,6 +656,7 @@ export async function onLocustStart() {
 }
 
 export async function onLocustStop() {
+  await captureLiveScenarioSnapshot();
   await api.locustStop();
   state.isScenarioRunning = false;
   uiLog("Locust stop requested.", "info");
@@ -680,15 +720,53 @@ export async function onRunDemo() {
 export async function onClearDatabase() {
   if (!confirm("Reset simulation state?")) return;
 
-  const { res, data } = await api.clearDatabase();
+  try {
+    // 1. stop load engine first
+    await api.locustStop();
 
-  if (!res?.ok) {
-    uiLog(data?.detail || "State reset failed", "error");
-    return;
+    // маленькая пауза, чтобы locust успел схлопнуться
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // 2. clear redis state
+    const { res, data } = await api.clearDatabase();
+
+    if (!res?.ok) {
+      uiLog(data?.detail || "State reset failed", "error");
+      return;
+    }
+
+    // 3. локально сразу обнулим UI, чтобы не видеть старые цифры
+    state.latestLocustStats = null;
+    state.liveScenarioStatsSnapshot = null;
+    state.isScenarioRunning = false;
+    state.currentTicket = "";
+    state.winningTicket = "";
+    state.myCheckResult = null;
+    state.myCheckLatencyMs = null;
+    state.myCheckExists = null;
+    state.myCheckIsWinner = null;
+
+    renderLocustStats({
+      rps: 0,
+      p95: 0,
+      fail_ratio: 0,
+      full_stats: [],
+    });
+
+    renderTicketPairs(null);
+    setTicketStatus("No ticket loaded.", "#888");
+    setWinnerDisplay("NOT DRAWN", "idle");
+    clearSummaryTerminal();
+
+    uiLog("Simulation state cleared.", "success");
+
+    // если хочешь оставить reload — можно,
+    // но после локального сброса он уже не обязателен
+    location.reload();
+  } catch (e) {
+    console.error(e);
+    uiLog("Reset failed (network/server error).", "error");
   }
-
-  uiLog("Simulation state cleared.", "success");
-  location.reload();
 }
 
 //TICKET ANIMATION

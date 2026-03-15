@@ -1,8 +1,33 @@
-﻿.idea/
+﻿# IDE
+.idea/
+.vscode/
+
+# Python
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
 venv/
 .venv/
-*.pyc
+env/
+
+# Redis
 dump.rdb
-# runtime reports
+
+# Runtime reports
 reports/
+
+# Environment variables
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Locust
+.locust/
