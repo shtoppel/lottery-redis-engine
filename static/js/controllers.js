@@ -105,11 +105,9 @@ async function stopLoadNow(message = "Scenario stopped.") {
   await api.locustStop();
   stopWinnerReveal(true);
   state.isScenarioRunning = false;
-  uiLog("Scenario completed: Burst finished.", "success");
+  uiLog(message, "success");
   appendSummaryLine("scenario finished");
   appendSummaryLine("full winning ticket revealed");
-
-await showPersonalScenarioSummary();
 
   await showPersonalScenarioSummary();
 }
@@ -333,8 +331,11 @@ export async function onRaceRun() {
     `mode: ${data.mode}`,
     `concurrency: ${data.concurrency}`,
     `winning ticket: ${state.winningTicket || "-"}`,
-    `success count: ${data.stored_success_count}`,
-    `duplicate bug: ${data.duplicate_bug ? "YES" : "NO"}`,
+    `expected winners: ${data.expected_winners ?? 1}`,
+    `actual winners: ${data.actual_winners ?? data.stored_success_count}`,
+    `consistency: ${data.consistency || (data.duplicate_bug ? "BROKEN" : "OK")}`,
+    `first successful request: ${data.first_successful_request || data.final_claimed_by || "-"}`,
+    `race window: ${Number(data.race_window_ms ?? 0).toFixed(2)} ms`,
     data.duplicate_bug
       ? "verdict: race condition reproduced"
       : "verdict: atomic protection works"
@@ -525,6 +526,16 @@ export async function onPullTicket() {
   appendSummaryLine(`your ticket: ${formatTicket(state.currentTicket)}`);
 }
 
+export async function onPullAndVerifyTicket() {
+  await onPullTicket();
+
+  if (!state.currentTicket) {
+    return;
+  }
+
+  await onVerifyTicket();
+}
+
 export async function onVerifyTicket() {
   if (!state.currentTicket) {
     uiLog("Pull a ticket first.", "error");
@@ -676,22 +687,48 @@ export async function onRunDemo() {
     btn.style.opacity = "0.5";
   }
 
+  clearSummaryTerminal();
+  appendSummaryLine("ramp test requested");
+  appendSummaryLine("preparing pool and starting automated flow...");
+  appendSummaryLine("official draw will run automatically");
+
+  const startedAt = performance.now();
+  const spin = ["|", "/", "-", "\\"];
+  let spinIdx = 0;
+  const progressTimer = setInterval(() => {
+    const sec = Math.floor((performance.now() - startedAt) / 1000);
+    appendSummaryLine(`ramp in progress ${spin[spinIdx]} (${sec}s)`);
+    spinIdx = (spinIdx + 1) % spin.length;
+  }, 2500);
+
   try {
     const { res, data } = await api.runDemo();
 
-    if (!res?.ok) {
+    if (!res?.ok || data?.status !== "ok") {
       uiLog(data?.detail || "Demo failed", "error");
+      appendSummaryLine(`ramp failed: ${data?.detail || "unknown error"}`);
       return;
+    }
+
+    const report = data?.report || null;
+    const winner = report?.winner ? String(report.winner) : "";
+    if (winner) {
+      state.winningTicket = winner;
+      setWinnerDisplay(winner, "winner");
+      appendSummaryLine(`official draw completed: ${winner}`);
+    } else {
+      appendSummaryLine("official draw completed");
     }
 
     uiLog("Demo finished successfully.", "success");
 
     const reportRes = await api.latestDemoReport();
-    const s = reportRes.data?.summary;
+    const s = reportRes?.data?.summary || null;
 
     await renderSummaryTerminal([
-      "analyzing ramp scenario...",
-      `steps executed: ${s?.steps_executed ?? "-"}`,
+      "ramp test complete.",
+      `winner: ${winner || "-"}`,
+      `steps executed: ${s?.steps_executed ?? report?.steps?.length ?? "-"}`,
       `peak rps: ${s?.peak_rps ?? "-"}`,
       `worst p95: ${s?.worst_p95 ?? "-"} ms`,
       `stable up to: ${s?.stable_users ?? "-"} users`,
@@ -706,7 +743,10 @@ export async function onRunDemo() {
   } catch (e) {
     console.error(e);
     uiLog("Demo failed (network/server error).", "error");
+    appendSummaryLine("ramp failed: network/server error");
   } finally {
+    clearInterval(progressTimer);
+
     if (btn) {
       btn.disabled = false;
       btn.style.opacity = "1";
