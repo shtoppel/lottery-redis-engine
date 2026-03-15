@@ -25,13 +25,33 @@ class RaceService:
         return True, None
 
     @staticmethod
-    async def claim_unsafe(redis, user_id: str, delay_ms: int = 10) -> dict[str, Any]:
+    async def validate_claim_ticket(redis, ticket_id: str) -> tuple[bool, dict[str, Any] | None]:
+        if not ticket_id:
+            return False, {"status": "invalid_ticket", "claimed": False, "detail": "ticket_id is required"}
+
+        exists = await redis.sismember("lottery:tickets", ticket_id)
+        if not exists:
+            return False, {"status": "invalid_ticket", "claimed": False, "ticket_id": ticket_id}
+
+        winning = await redis.get("lottery:winning_number")
+        if ticket_id != winning:
+            return False, {"status": "no_match", "claimed": False, "ticket_id": ticket_id}
+
+        return True, None
+
+    @staticmethod
+    async def claim_unsafe(redis, user_id: str, ticket_id: str, delay_ms: int = 10) -> dict[str, Any]:
         """
         Intentionally unsafe check-then-set flow.
         """
         ready, detail = await RaceService.ensure_ready(redis)
         if not ready:
-            return {"status": "error", "detail": detail}
+            return {"status": "error", "detail": detail, "claimed": False}
+
+        valid, fail_payload = await RaceService.validate_claim_ticket(redis, ticket_id)
+        if not valid:
+            fail_payload["user_id"] = user_id
+            return fail_payload
 
         claimed_by = await redis.get(RaceService.CLAIMED_KEY)
 
@@ -41,6 +61,7 @@ class RaceService:
                 "claimed": False,
                 "claimed_by": claimed_by,
                 "user_id": user_id,
+                "ticket_id": ticket_id,
             }
 
         # widen race window on purpose
@@ -50,30 +71,37 @@ class RaceService:
         await redis.incr(RaceService.SUCCESS_COUNT_KEY)
 
         return {
-            "status": "claimed",
+            "status": "claim_success",
             "claimed": True,
             "claimed_by": user_id,
             "user_id": user_id,
+            "ticket_id": ticket_id,
         }
 
     @staticmethod
-    async def claim_safe(redis, user_id: str) -> dict[str, Any]:
+    async def claim_safe(redis, user_id: str, ticket_id: str) -> dict[str, Any]:
         """
         Safe atomic claim via SETNX.
         """
         ready, detail = await RaceService.ensure_ready(redis)
         if not ready:
-            return {"status": "error", "detail": detail}
+            return {"status": "error", "detail": detail, "claimed": False}
+
+        valid, fail_payload = await RaceService.validate_claim_ticket(redis, ticket_id)
+        if not valid:
+            fail_payload["user_id"] = user_id
+            return fail_payload
 
         ok = await redis.setnx(RaceService.CLAIMED_KEY, user_id)
 
         if ok:
             await redis.incr(RaceService.SUCCESS_COUNT_KEY)
             return {
-                "status": "claimed",
+                "status": "claim_success",
                 "claimed": True,
                 "claimed_by": user_id,
                 "user_id": user_id,
+                "ticket_id": ticket_id,
             }
 
         claimed_by = await redis.get(RaceService.CLAIMED_KEY)
@@ -83,4 +111,5 @@ class RaceService:
             "claimed": False,
             "claimed_by": claimed_by,
             "user_id": user_id,
+            "ticket_id": ticket_id,
         }

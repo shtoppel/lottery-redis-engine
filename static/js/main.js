@@ -6,8 +6,7 @@ import { loadComponent } from "./component_loader.js";
 import {
   onGenerate,
   onAdminDraw,
-  onPullTicket,
-  onVerifyTicket,
+  onPullAndVerifyTicket,
   onMultiCheck,
   onLocustStart,
   onLocustStop,
@@ -47,8 +46,7 @@ function bind() {
   dom.btnDraw()?.addEventListener("click", onAdminDraw);
 
   // ticket flow
-  dom.btnPull()?.addEventListener("click", onPullTicket);
-  dom.btnVerify()?.addEventListener("click", onVerifyTicket);
+  dom.btnPullVerify()?.addEventListener("click", onPullAndVerifyTicket);
 
   // multi-check
   dom.btnMulti()?.addEventListener("click", onMultiCheck);
