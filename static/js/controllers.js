@@ -105,11 +105,9 @@ async function stopLoadNow(message = "Scenario stopped.") {
   await api.locustStop();
   stopWinnerReveal(true);
   state.isScenarioRunning = false;
-  uiLog("Scenario completed: Burst finished.", "success");
+  uiLog(message, "success");
   appendSummaryLine("scenario finished");
   appendSummaryLine("full winning ticket revealed");
-
-await showPersonalScenarioSummary();
 
   await showPersonalScenarioSummary();
 }
@@ -523,6 +521,16 @@ export async function onPullTicket() {
   uiLog("Ticket loaded.", "success");
   appendSummaryLine("personal ticket pulled from pool");
   appendSummaryLine(`your ticket: ${formatTicket(state.currentTicket)}`);
+}
+
+export async function onPullAndVerifyTicket() {
+  await onPullTicket();
+
+  if (!state.currentTicket) {
+    return;
+  }
+
+  await onVerifyTicket();
 }
 
 export async function onVerifyTicket() {
