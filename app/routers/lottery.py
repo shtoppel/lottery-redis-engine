@@ -576,7 +576,6 @@ async def race_run(
 
                         event = {
                             "user": uid,
-                            "ticket_id": request_params.get("ticket_id"),
                             "latency_ms": latency_ms,
                             "status": status,
                             "claimed": bool(payload.get("claimed") is True),
@@ -586,7 +585,6 @@ async def race_run(
                         latency_ms = round((time.perf_counter() - req_started) * 1000, 2)
                         event = {
                             "user": uid,
-                            "ticket_id": request_params.get("ticket_id"),
                             "latency_ms": latency_ms,
                             "status": "network_error",
                             "claimed": False,
@@ -613,6 +611,22 @@ async def race_run(
     final_claimed_by = await r.get(RaceService.CLAIMED_KEY)
 
     duplicate_bug = stored_success_count > 1
+
+    race_events.sort(key=lambda x: x.get("latency_ms", 0))
+
+    success_events = [e for e in race_events if e.get("claimed") is True]
+    expected_winners = 1
+    actual_winners = stored_success_count
+    consistency = "OK" if actual_winners == expected_winners else "BROKEN"
+
+    first_success_request = None
+    race_window_ms = 0.0
+    if success_events:
+        first_success = min(success_events, key=lambda x: x.get("latency_ms", 0))
+        first_success_request = first_success.get("user")
+        min_success = min(e.get("latency_ms", 0) for e in success_events)
+        max_success = max(e.get("latency_ms", 0) for e in success_events)
+        race_window_ms = round(max_success - min_success, 2)
 
     race_events.sort(key=lambda x: x.get("latency_ms", 0))
 
