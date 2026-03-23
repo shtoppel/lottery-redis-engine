@@ -59,7 +59,7 @@ Dieses Projekt simuliert eine Lottery-Engine, bei der tausende Benutzer gleichze
 1. **Clone the repository:**
 
    ```bash
-   git clone [https://github.com/kirill/lottery-redis-engine](https://github.com/kirill/lottery-redis-engine)
+   git clone [https://github.com/shtoppel/lottery-redis-engine.git](https://github.com/shtoppel/lottery-redis-engine.git)
    cd lottery-redis-engine
 
  2. **Run with Docker:**
